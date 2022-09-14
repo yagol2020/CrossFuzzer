@@ -117,7 +117,10 @@ class Fuzzer:
     def run(self):
         contract_address = None
         self.instrumented_evm.create_fake_accounts()
-        generators, populations, interfaces = self.deploy_depend_contracts()  # 先部署依赖合约
+        if self.args.cross_contract == 1:
+            generators, populations, interfaces = self.deploy_depend_contracts()  # 先部署依赖合约
+        else:
+            generators, populations, interfaces = [], [], []
         if self.args.source:
             for transaction in self.blockchain_state:
                 if transaction['from'].lower() not in self.instrumented_evm.accounts:
@@ -429,14 +432,16 @@ def launch_argument_parser():
         settings.RPC_PORT = args.rpc_port
 
     # cross contract
-    if args.contract == None or args.contract == "" or args.cross_contract == 2:
+    if args.contract is None or args.contract == "" or args.cross_contract == 2:
         args.cross_contract = 2  # close
+        args.depend_contracts = []
+        args.trans_json_path = None
     else:
-        if args.contract == None or args.contract == "":
+        if args.contract is None or args.contract == "":
             print('\033[42;31m!!!!!!if open cross contract mode, you need specify a main contract which will be fuzzed!!!!!!\033[0m')
             print('\033[42;31m!!!!!!use --contract [Example]!!!!!!\033[0m')
             sys.exit(-1)
-        if args.depend_contracts == None:
+        if args.depend_contracts is None:
             print('\033[42;31m!!!!!!if open cross contract mode, you need specify some contract names which depended by main contract!!!!!!\033[0m')
             print('\033[42;31m!!!!!!use --depend-contracts [A B C]!!!!!!\033[0m')
             sys.exit(-1)
