@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import random
 import time
 import json
 import psutil
@@ -20,6 +21,7 @@ from z3.z3util import get_vars
 
 from utils import settings
 
+
 class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
     def __init__(self, fuzzing_environment: FuzzingEnvironment) -> None:
         self.logger = initialize_logger("Analysis")
@@ -34,21 +36,6 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
         self.env.memoized_storage.clear()
         self.env.memoized_symbolic_execution.clear()
         self.env.individual_branches.clear()
-
-        """from utils.utils import get_function_signature_mapping
-        m = get_function_signature_mapping(self.env.abi)
-
-        for i in population:
-            a = [c["arguments"] for c in i.chromosome]
-            b = []
-            for j in a:
-                arg = j[0]
-                if arg in m:
-                    b.append(m[arg]+" "+j[0])
-                else:
-                    b.append(arg)
-            print(b)"""
-
 
         executed_individuals = dict()
         for i, individual in enumerate(population.individuals):
@@ -81,7 +68,8 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
             g + 1, code_coverage_percentage, len(self.env.code_coverage), len(self.env.overall_pcs),
             branch_coverage_percentage, branch_coverage, len(self.env.overall_jumpis) * 2, self.env.nr_of_transactions, len(self.env.unique_individuals),
             time.time() - self.env.execution_begin)
-        self.logger.title(msg)
+        if random.randint(1, 50) < 3:  # 别全部输出了, 那么多也没用
+            self.logger.title(msg)
 
         # Save to results
         if "generations" not in self.env.results:
@@ -135,7 +123,9 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                 continue
 
             try:
-                result = env.instrumented_evm.deploy_transaction(test)
+                result = env.instrumented_evm.deploy_transaction(test) # 似乎返回的数据, 是和主合约相同的, 即使事务是依赖合约的
+                # 是监控的问题? 其实事务生效了, 但无法跟踪?
+                # 还是虚拟机被限制了, 只能主合约?
             except ValidationError as e:
                 self.logger.error("Validation error in %s : %s (ignoring for now)", indv.hash, e)
                 continue
@@ -165,8 +155,8 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                 env.symbolic_taint_analyzer.propagate_taint(instruction, contract_address)
 
                 env.detector_executor.run_detectors(previous_instruction, instruction, env.results["errors"],
-                                                env.symbolic_taint_analyzer.get_tainted_record(index=-2), indv, env, previous_branch,
-                                                transaction_index)
+                                                    env.symbolic_taint_analyzer.get_tainted_record(index=-2), indv, env, previous_branch,
+                                                    transaction_index)
 
                 # If constructor, we don't have to take into account the constructor inputs because they will be part of the
                 # state. We don't have to compute the code coverage, because the code is not the deployed one. We don't need
@@ -471,7 +461,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
 
         for index, pc in enumerate(self.env.visited_branches):
             self.logger.debug("b(%d) pc : %s - visited branches : %s", index, pc,
-                               self.env.visited_branches[pc].keys())
+                              self.env.visited_branches[pc].keys())
 
             if len(self.env.visited_branches[pc]) != 1:
                 continue
@@ -499,7 +489,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                 model = self.env.solver.model()
 
                 self.logger.debug("(%s) Symbolic Solution to branch %s: %s ", _d["indv_hash"], pc,
-                                  "; ".join([str(x)+" ("+str(model[x])+")" for x in model]))
+                                  "; ".join([str(x) + " (" + str(model[x]) + ")" for x in model]))
 
                 for variable in model:
                     if str(variable).startswith("underflow"):
@@ -540,8 +530,8 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
 
                     elif str(variable).startswith("caller_"):
                         _function_hash = _d["chromosome"][transaction_index]["arguments"][0]
-                        if model[variable].as_long() > 8 and model[variable].as_long() < 2**160:
-                            account_address = normalize_32_byte_hex_address("0x"+hex(model[variable].as_long()).replace("0x", "").zfill(40))
+                        if model[variable].as_long() > 8 and model[variable].as_long() < 2 ** 160:
+                            account_address = normalize_32_byte_hex_address("0x" + hex(model[variable].as_long()).replace("0x", "").zfill(40))
                             if not self.env.instrumented_evm.has_account(account_address):
                                 self.env.instrumented_evm.restore_from_snapshot()
                                 self.env.instrumented_evm.accounts.append(self.env.instrumented_evm.create_fake_account(account_address))
@@ -565,7 +555,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                                         self.env.instrumented_evm.create_snapshot()
                                 except Exception as e:
                                     self.logger.error("(%s) [symbolic execution : calldatacopy ] %s", _function_hash,
-                                                       e)
+                                                      e)
                                     continue
                             else:
                                 argument = model[variable].as_long()
@@ -590,7 +580,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                                         self.env.instrumented_evm.create_snapshot()
                                 except Exception as e:
                                     self.logger.error("(%s) [symbolic execution : calldataload ] %s", _function_hash,
-                                                       e)
+                                                      e)
                                     continue
 
                         elif indv_generator.interface[_function_hash][parameter_index].startswith("int"):
@@ -705,8 +695,8 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
         if len(self.env.overall_pcs) > 0:
             code_coverage_percentage = (len(self.env.code_coverage) / len(self.env.overall_pcs)) * 100
         msg = 'Total code coverage: \t {:.2f}% ({}/{})'.format(code_coverage_percentage,
-                                                                len(self.env.code_coverage),
-                                                                len(self.env.overall_pcs))
+                                                               len(self.env.code_coverage),
+                                                               len(self.env.overall_pcs))
         self.logger.info(msg)
         branch_coverage = 0
         for pc in self.env.visited_branches:
@@ -719,7 +709,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
         self.logger.info(msg)
         msg = 'Total execution time: \t {:.2f} seconds'.format(execution_delta)
         self.logger.info(msg)
-        msg = 'Total memory consumption: \t {:.2f} MB'.format(psutil.Process(os.getpid()).memory_info().rss/1024/1024)
+        msg = 'Total memory consumption: \t {:.2f} MB'.format(psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024)
         self.logger.info(msg)
 
         # Save to results
@@ -737,7 +727,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                                                "covered": branch_coverage,
                                                "total": len(self.env.overall_jumpis) * 2}
         self.env.results["execution_time"] = execution_delta
-        self.env.results["memory_consumption"] = psutil.Process(os.getpid()).memory_info().rss/1024/1024
+        self.env.results["memory_consumption"] = psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024
         self.env.results["address_under_test"] = self.env.population.indv_generator.contract
         self.env.results["seed"] = self.env.seed
 

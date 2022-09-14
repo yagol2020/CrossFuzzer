@@ -20,14 +20,17 @@ from .components import Individual, Population
 from .plugin_interfaces.operators import Selection, Crossover, Mutation
 from .plugin_interfaces.analysis import OnTheFlyAnalysis
 
+
 def do_profile(filename, sortby='tottime'):
     '''
     Constructor for function profiling decorator.
     '''
+
     def _do_profile(func):
         '''
         Function profiling decorator.
         '''
+
         @wraps(func)
         def profiled_func(*args, **kwargs):
             '''
@@ -46,6 +49,7 @@ def do_profile(filename, sortby='tottime'):
             else:
                 result = func(*args, **kwargs)
             return result
+
         return profiled_func
 
     return _do_profile
@@ -150,17 +154,6 @@ class EvolutionaryFuzzingEngine(object):
                 # NOTE: One series of genetic operation generates 2 new individuals.
                 size = self.population.size // 2
 
-                """for i in range(self.population.size):
-                    individual = self.population.individuals[i].decode()
-                    output = str(len(individual))
-                    for input in individual:
-                        tx = input["transaction"]
-                        if tx["data"][:10] in self.mapping:
-                            output += " " + self.mapping[tx["data"][:10]].split("(")[0] + "(" + tx["data"][11:] + ")"
-                        else:
-                            output += " " + tx["data"]
-                    print(output)"""
-
                 # Fill the new population.
                 for _ in range(size):
                     # Select father and mother.
@@ -230,6 +223,7 @@ class EvolutionaryFuzzingEngine(object):
         '''
         A decorator for fitness function register.
         '''
+
         @wraps(fn)
         def _fn_with_fitness_check(indv):
             '''
@@ -279,6 +273,7 @@ class EvolutionaryFuzzingEngine(object):
             1. arg max f(x), then f' = f - min{f(x)} + ksi;
             2. arg min f(x), then f' = max{f(x)} - f(x) + ksi;
         '''
+
         def _linear_scaling(fn):
             # For original fitness calculation.
             self.ori_fitness = fn
@@ -320,6 +315,7 @@ class EvolutionaryFuzzingEngine(object):
         Dynamic Linear Scaling:
             For maximizaiton, f' = f(x) - min{f(x)} + ksi^k, k is generation number.
         '''
+
         def _dynamic_linear_scaling(fn):
             # For original fitness calculation.
             self.ori_fitness = fn
@@ -330,9 +326,9 @@ class EvolutionaryFuzzingEngine(object):
                 k = self.current_generation + 1
 
                 if target == 'max':
-                    f_prime = f - self.ori_fmin + ksi0*(r**k)
+                    f_prime = f - self.ori_fmin + ksi0 * (r ** k)
                 elif target == 'min':
-                    f_prime = self.ori_fmax - f + ksi0*(r**k)
+                    f_prime = self.ori_fmax - f + ksi0 * (r ** k)
                 else:
                     raise ValueError('Invalid target type({})'.format(target))
                 return f_prime
@@ -345,7 +341,9 @@ class EvolutionaryFuzzingEngine(object):
         '''
         A decorator for minimizing the fitness function.
         '''
+
         @wraps(fn)
         def _minimize(indv):
             return -fn(indv)
+
         return _minimize

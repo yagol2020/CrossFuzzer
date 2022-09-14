@@ -34,7 +34,7 @@ from eth.vm.forks.tangerine_whistle.computation import TangerineWhistleComputati
 
 from web3 import HTTPProvider
 from web3 import Web3
-
+import binascii
 from utils import settings
 
 global BLOCK_ID
@@ -296,12 +296,12 @@ def fuzz_staticcall_opcode_fn(computation, opcode_fn) -> None:
         opcode_fn(computation=computation)
     return _to
 
-def fuzz_extcodesize_opcode_fn(computation, opcode_fn) -> None:
+def fuzz_extcodesize_opcode_fn(computation, opcode_fn) -> None: # EXTCODESIZE
     to = computation.stack_pop1_bytes()
     _to = to_normalized_address(to_hex(force_bytes_to_address(to)))
     if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_extcodesize") and computation.state.fuzzed_extcodesize is not None\
             and _to in computation.state.fuzzed_extcodesize and computation.state.fuzzed_extcodesize[_to] is not None:
-        computation.stack_push_int(computation.state.fuzzed_extcodesize[_to])
+        computation.stack_push_int(computation.state.fuzzed_extcodesize[_to]) # 使用到了缓存?
     else:
         computation.stack_push_bytes(to)
         opcode_fn(computation=computation)
@@ -324,7 +324,7 @@ def fuzz_balance_opcode_fn(computation, opcode_fn) -> None:
 
 def fuzz_apply_computation(cls, state, message, transaction_context):
     cls = cls.__class__
-    with cls(state, message, transaction_context) as computation:
+    with cls(state, message, transaction_context) as computation: # 这个computation属于主合约, 因此其他合约的事务不能执行
 
         # Early exit on pre-compiles
         from eth.vm.computation import NO_RESULT

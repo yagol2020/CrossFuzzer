@@ -39,6 +39,7 @@ from .storage_emulation import (
 from utils import settings
 from utils.utils import initialize_logger
 
+
 class InstrumentedEVM:
     def __init__(self, eth_node_ip=None, eth_node_port=None) -> None:
         chain_class = Chain.configure(
@@ -52,11 +53,14 @@ class InstrumentedEVM:
                 (PETERSBURG_MAINNET_BLOCK, PetersburgVMForFuzzTesting),
             ),
         )
+
         class MyMemoryDB(MemoryDB):
             def __init__(self) -> None:
                 self.kv_store = {'storage': dict(), 'account': dict(), 'code': dict()}
+
             def rst(self) -> None:
                 self.kv_store = {'storage': dict(), 'account': dict(), 'code': dict()}
+
         if eth_node_ip and eth_node_port and settings.REMOTE_FUZZING:
             self.w3 = Web3(HTTPProvider('http://%s:%s' % (eth_node_ip, eth_node_port)))
         else:
@@ -73,7 +77,7 @@ class InstrumentedEVM:
 
     def get_cached_block_by_id(self, block_number):
         block = None
-        with open(os.path.dirname(os.path.abspath(__file__))+"/"+".".join([str(block_number), "block"]), "rb") as f:
+        with open(os.path.dirname(os.path.abspath(__file__)) + "/" + ".".join([str(block_number), "block"]), "rb") as f:
             block = pickle.load(f)
         return block
 
@@ -89,7 +93,7 @@ class InstrumentedEVM:
             validate_uint256(block_identifier)
             _block = self.w3.eth.getBlock(block_identifier)
         if not _block:
-            if block_identifier in [HOMESTEAD_MAINNET_BLOCK, BYZANTIUM_MAINNET_BLOCK,PETERSBURG_MAINNET_BLOCK]:
+            if block_identifier in [HOMESTEAD_MAINNET_BLOCK, BYZANTIUM_MAINNET_BLOCK, PETERSBURG_MAINNET_BLOCK]:
                 _block = self.get_cached_block_by_id(block_identifier)
             else:
                 self.logger.error("Unknown block identifier.")
@@ -111,7 +115,7 @@ class InstrumentedEVM:
                                    nonce=_block.nonce)
         self.vm = self.chain.get_vm(block_header)
 
-    def execute(self, tx, debug=False):
+    def execute(self, tx, debug=True):  # debug默认是False
         if debug:
             logging.getLogger('eth.vm.computation.Computation')
             logging.basicConfig(level=DEBUG2_LEVEL_NUM)
@@ -129,7 +133,7 @@ class InstrumentedEVM:
         if code and code != '':
             self.vm.state._account_db.set_code(address, code)
         if storage:
-            for k,v in storage.items():
+            for k, v in storage.items():
                 self.vm.state._account_db.set_storage(address, int.from_bytes(decode_hex(k), byteorder="big"), int.from_bytes(decode_hex(v), byteorder="big"))
         self.logger.debug("Created account %s with balance %s", encode_hex(address), account.balance)
         return encode_hex(address)
@@ -222,7 +226,7 @@ class InstrumentedEVM:
         return [encode_hex(x) for x in self.storage_emulator._raw_store_db.wrapped_db["account"].keys()]
 
     def set_vm_by_name(self, EVM_VERSION):
-        if   EVM_VERSION == "homestead":
+        if EVM_VERSION == "homestead":
             self.set_vm(HOMESTEAD_MAINNET_BLOCK)
         elif EVM_VERSION == "byzantium":
             self.set_vm(BYZANTIUM_MAINNET_BLOCK)

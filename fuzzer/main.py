@@ -32,8 +32,9 @@ from utils.source_map import SourceMap
 from utils.utils import initialize_logger, compile, get_interface_from_abi, get_pcs_and_jumpis, get_function_signature_mapping
 from utils.control_flow_graph import ControlFlowGraph
 
+
 class Fuzzer:
-    def __init__(self, contract_name, abi, deployment_bytecode, runtime_bytecode, test_instrumented_evm, blockchain_state, solver, args, seed, source_map=None):
+    def __init__(self, contract_name, abi, deployment_bytecode, runtime_bytecode, test_instrumented_evm, blockchain_state, solver, args, seed, source_map=None, whole_compile_info=None):
         global logger
 
         logger = initialize_logger("Fuzzer  ")
@@ -49,6 +50,9 @@ class Fuzzer:
         self.instrumented_evm = test_instrumented_evm
         self.solver = solver
         self.args = args
+        # 该合约依赖的其他合约
+        self.depend_contracts = args.depend_contracts
+        self.whole_compile_info = whole_compile_info
 
         # Get some overall metric on the code
         self.overall_pcs, self.overall_jumpis = get_pcs_and_jumpis(runtime_bytecode)
@@ -67,16 +71,54 @@ class Fuzzer:
                                       overall_pcs=self.overall_pcs,
                                       overall_jumpis=self.overall_jumpis,
                                       len_overall_pcs_with_children=0,
-                                      other_contracts = list(),
+                                      other_contracts=list(),
                                       args=args,
                                       seed=seed,
                                       cfg=cfg,
                                       abi=abi)
 
+    def deploy_depend_contracts(self):
+        generators, populations = [], []
+        interfaces = []
+        if self.whole_compile_info is None:
+            logger.error("没有找到编译信息, 退出程序!")
+            sys.exit(-1)
+        for depend_contract in self.depend_contracts:
+            # 得到这个合约的interface
+            interface = get_interface_from_abi(self.whole_compile_info[depend_contract]['abi'])
+            deployement_bytecode = self.whole_compile_info[depend_contract]['evm']['bytecode']['object']
+            if "constructor" in interface:
+                del interface['constructor']
+            if "constructor" not in interface:
+                result = self.instrumented_evm.deploy_contract(self.instrumented_evm.accounts[0], deployement_bytecode)  # 将依赖合约部署
+                if result.is_error:
+                    logger.error("Problem while deploying contract %s using account %s. Error message: %s", depend_contract, self.instrumented_evm.accounts[0], result._error)
+                    sys.exit(-2)
+                else:
+                    contract_address = encode_hex(result.msg.storage_address)
+                    self.instrumented_evm.accounts.append(contract_address)
+                    self.env.nr_of_transactions += 1
+                    logger.info(f"依赖合约 {depend_contract} deployed at\t%s, 由{self.instrumented_evm.accounts[0]}创建", contract_address)
+                    if self.args.trans_json_path is not None:
+                        import json
+                        j = json.load(open(self.args.trans_json_path))
+                        j[depend_contract] = contract_address
+                        json.dump(j, open(self.args.trans_json_path, "w"))
+                    generator = Generator(interface=interface, bytecode=deployement_bytecode, accounts=self.instrumented_evm.accounts, contract=contract_address)
+                    size = 2 * len(interface)
+                    population = Population(indv_template=Individual(generator=generator),
+                                            indv_generator=generator,
+                                            size=settings.POPULATION_SIZE if settings.POPULATION_SIZE else size).init()
+                    generators.append(generator)
+                    populations.append(population)
+                    interfaces.append(interface)
+        return generators, populations, interfaces
+
     def run(self):
         contract_address = None
         self.instrumented_evm.create_fake_accounts()
-
+        # 在部署完成主合约后, 再依次部署依赖合约
+        generators, populations, interfaces = self.deploy_depend_contracts()
         if self.args.source:
             for transaction in self.blockchain_state:
                 if transaction['from'].lower() not in self.instrumented_evm.accounts:
@@ -121,7 +163,7 @@ class Fuzzer:
                         contract_address = encode_hex(result.msg.storage_address)
                         self.instrumented_evm.accounts.append(contract_address)
                         self.env.nr_of_transactions += 1
-                        logger.debug("Contract deployed at %s", contract_address)
+                        logger.info("Contract deployed at %s", contract_address)
 
             if contract_address in self.instrumented_evm.accounts:
                 self.instrumented_evm.accounts.remove(contract_address)
@@ -144,6 +186,11 @@ class Fuzzer:
                                 indv_generator=generator,
                                 size=settings.POPULATION_SIZE if settings.POPULATION_SIZE else size).init()
 
+        # # 用依赖合约的generator/population/interface替换主合约的, 测试是否真的部署了
+        # generator = generators[0]
+        # size = 2 * len(interfaces[0])
+        # population = populations[0]
+
         # Create genetic operators
         if self.args.data_dependency:
             selection = DataDependencyLinearRankingSelection(env=self.env)
@@ -157,7 +204,7 @@ class Fuzzer:
         # Create and run our evolutionary fuzzing engine
         engine = EvolutionaryFuzzingEngine(population=population, selection=selection, crossover=crossover, mutation=mutation, mapping=get_function_signature_mapping(self.env.abi))
         engine.fitness_register(lambda x: fitness_function(x, self.env))
-        engine.analysis.append(ExecutionTraceAnalyzer(self.env))
+        engine.analysis.append(ExecutionTraceAnalyzer(self.env))  # 注册了执行器
 
         self.env.execution_begin = time.time()
         self.env.population = population
@@ -166,11 +213,12 @@ class Fuzzer:
 
         if self.env.args.cfg:
             if self.env.args.source:
-                self.env.cfg.save_control_flow_graph(os.path.splitext(self.env.args.source)[0]+'-'+self.contract_name, 'pdf')
+                self.env.cfg.save_control_flow_graph(os.path.splitext(self.env.args.source)[0] + '-' + self.contract_name, 'pdf')
             elif self.env.args.abi:
                 self.env.cfg.save_control_flow_graph(os.path.join(os.path.dirname(self.env.args.abi), self.contract_name), 'pdf')
 
         self.instrumented_evm.reset()
+
 
 def main():
     print_logo()
@@ -181,8 +229,8 @@ def main():
     # Check if contract has already been analyzed
     if args.results and os.path.exists(args.results):
         os.remove(args.results)
-        logger.info("Contract "+str(args.source)+" has already been analyzed: "+str(args.results))
-        sys.exit(0)
+        logger.info("Contract " + str(args.source) + " has already been analyzed: " + str(args.results))
+        logger.info(f"原始的测试输出文件{args.results}已被删除")
 
     # Initializing random
     if args.seed:
@@ -228,7 +276,7 @@ def main():
                     continue
                 if contract['abi'] and contract['evm']['bytecode']['object'] and contract['evm']['deployedBytecode']['object']:
                     source_map = SourceMap(':'.join([args.source, contract_name]), compiler_output)
-                    Fuzzer(contract_name, contract["abi"], contract['evm']['bytecode']['object'], contract['evm']['deployedBytecode']['object'], instrumented_evm, blockchain_state, solver, args, seed, source_map).run()
+                    Fuzzer(contract_name, contract["abi"], contract['evm']['bytecode']['object'], contract['evm']['deployedBytecode']['object'], instrumented_evm, blockchain_state, solver, args, seed, source_map, compiler_output['contracts'][args.source]).run()
         else:
             logger.error("Unsupported input file: " + args.source)
             sys.exit(-1)
@@ -238,6 +286,7 @@ def main():
             abi = json.load(json_file)
             runtime_bytecode = instrumented_evm.get_code(to_canonical_address(args.contract)).hex()
             Fuzzer(args.contract, abi, None, runtime_bytecode, instrumented_evm, blockchain_state, solver, args, seed).run()
+
 
 def launch_argument_parser():
     parser = argparse.ArgumentParser()
@@ -249,7 +298,7 @@ def launch_argument_parser():
     group1.add_argument("-a", "--abi", type=str,
                         help="Smart contract ABI file (.json).")
 
-    #group2 = parser.add_mutually_exclusive_group(required=True)
+    # group2 = parser.add_mutually_exclusive_group(required=True)
     parser.add_argument("-c", "--contract", type=str,
                         help="Contract name to be fuzzed (if Solidity source code file provided) or blockchain contract address (if ABI file provided).")
 
@@ -304,6 +353,11 @@ def launch_argument_parser():
     parser.add_argument("--max-symbolic-execution",
                         help="Maximum number of symbolic execution calls before restting population (default: " + str(settings.MAX_SYMBOLIC_EXECUTION) + ")", action="store",
                         dest="max_symbolic_execution", type=int)
+
+    # cross contract fuzz parameters
+    parser.add_argument("--cross-contract", type=int, help="open cross contract mode, open -- 1, close -- 2 (default)", action="store", dest="cross_contract", default=2)
+    parser.add_argument("--depend-contracts", type=str, nargs="*", help="main fuzzed contract depend those contracts, you should give some names.", dest="depend_contracts")
+    parser.add_argument("--trans-json-path", type=str, help="location to save trans info to json", dest="trans_json_path")
 
     version = "ConFuzzius - Version 0.0.2 - "
     version += "\"By three methods we may learn wisdom:\n"
@@ -367,7 +421,24 @@ def launch_argument_parser():
     if args.rpc_port:
         settings.RPC_PORT = args.rpc_port
 
+    # cross contract
+    if args.contract == None or args.contract == "" or args.cross_contract == 2:
+        args.cross_contract = 2  # close
+    else:
+        if args.contract == None or args.contract == "":
+            print('\033[42;31m!!!!!!if open cross contract mode, you need specify a main contract which will be fuzzed!!!!!!\033[0m')
+            print('\033[42;31m!!!!!!use --contract [Example]!!!!!!\033[0m')
+            sys.exit(-1)
+        if args.depend_contracts == None:
+            print('\033[42;31m!!!!!!if open cross contract mode, you need specify some contract names which depended by main contract!!!!!!\033[0m')
+            print('\033[42;31m!!!!!!use --depend-contracts [A B C]!!!!!!\033[0m')
+            sys.exit(-1)
+        if args.trans_json_path is not None:
+            import json
+            json.dump({}, open(args.trans_json_path, "w"))
+
     return args
+
 
 def print_logo():
     print("")
@@ -377,6 +448,7 @@ def print_logo():
     print("  / /___/ /_/ / / / / __/ / /_/ / / /_/ /_/ / /_/ (__  ) ")
     print("  \____/\____/_/ /_/_/    \__,_/ /___/___/_/\__,_/____/  ")
     print("")
+
 
 if '__main__' == __name__:
     main()
