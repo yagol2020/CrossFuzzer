@@ -8,6 +8,7 @@ import random
 from utils import settings
 from ...plugin_interfaces.operators.mutation import Mutation
 
+
 class Mutation(Mutation):
     def __init__(self, pm):
         '''
@@ -32,13 +33,22 @@ class Mutation(Mutation):
                     gene["gaslimit"] = individual.generator.get_random_gaslimit(function_hash)
                 else:
                     for argument_index in range(1, len(gene["arguments"])):
-                        if random.random() > self.pm:
+                        if random.random() > self.pm:  # 变异概率
                             continue
-                        argument_type = individual.generator.interface[function_hash][argument_index - 1]
-                        argument = individual.generator.get_random_argument(argument_type,
-                                                                            function_hash,
-                                                                            argument_index - 1)
-                        gene["arguments"][argument_index] = argument
+                        if function_hash in individual.generator.interface.keys():
+                            argument_type = individual.generator.interface[function_hash][argument_index - 1]
+                            argument = individual.generator.get_random_argument(argument_type,
+                                                                                function_hash,
+                                                                                argument_index - 1)
+                            gene["arguments"][argument_index] = argument
+                        else:
+                            for o_g in individual.other_generators:
+                                if function_hash in o_g.interface.keys():
+                                    argument_type = o_g.interface[function_hash][argument_index - 1]
+                                    argument = o_g.get_random_argument(argument_type,
+                                                                       function_hash,
+                                                                       argument_index - 1)
+                                    gene["arguments"][argument_index] = argument
 
             # BLOCK
             if "timestamp" in gene:

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from typing import List
+
 
 class Individuals(object):
     '''
     Descriptor for all individuals in population.
     '''
+
     def __init__(self, name):
         self.name = '_{}'.format(name)
 
@@ -16,11 +19,16 @@ class Individuals(object):
         # Update flag.
         instance.update_flag()
 
+
 class Population(object):
+    """
+    用于生成一组测试用例
+    individuals就是很多条事务序列
+    """
     # All individuals.
     individuals = Individuals('individuals')
 
-    def __init__(self, indv_template, indv_generator, size=100):
+    def __init__(self, indv_template, indv_generator, size=100, other_generators=None):
         '''
         Class for representing population in genetic algorithm.
 
@@ -35,11 +43,11 @@ class Population(object):
         if size % 2 != 0:
             raise ValueError('Population size must be an even number')
         self.size = size
-        
+
         # Template individual.
         self.indv_template = indv_template
 
-        # Generator individual.
+        #  Generator individual.
         self.indv_generator = indv_generator
 
         # Flag for monitoring changes of population.
@@ -52,6 +60,7 @@ class Population(object):
             individuals which can update the population._updated flag
             automatically when its content is changed.
             '''
+
             # NOTE: Use 'this' here to avoid name conflict.
             def __init__(this, *args):
                 super(this.__class__, this).__init__(*args)
@@ -85,6 +94,8 @@ class Population(object):
 
         self._individuals = IndvList()
 
+        self.other_generators = other_generators if other_generators is not None else []
+
     def init(self, indvs=None):
         '''
         Initialize current population with individuals.
@@ -97,7 +108,7 @@ class Population(object):
 
         if indvs is None:
             while len(self.individuals) < self.size:
-                indv = IndvType(generator=self.indv_generator).init()
+                indv = IndvType(generator=self.indv_generator, other_generators=self.other_generators).init()
                 self.individuals.append(indv)
         else:
             # Check individuals.
@@ -176,7 +187,7 @@ class Population(object):
         Get the average fitness value in population.
         '''
         all_fits = self.all_fits(fitness)
-        return sum(all_fits)/len(all_fits)
+        return sum(all_fits) / len(all_fits)
 
     def all_fits(self, fitness):
         '''

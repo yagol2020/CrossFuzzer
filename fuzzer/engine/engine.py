@@ -4,6 +4,7 @@
 ''' Genetic Algorithm engine definition '''
 
 import math
+import sys
 import time
 import logging
 
@@ -99,7 +100,7 @@ class EvolutionaryFuzzingEngine(object):
                                      StatVar('ori_fmin'),
                                      StatVar('ori_fmean'))
 
-    def __init__(self, population, selection, crossover, mutation, fitness=None, analysis=None, mapping=None):
+    def __init__(self, population, selection, crossover, mutation, fitness=None, analysis=None, mapping=None, trans_json_path=None):
         # Set logger.
         logger_name = 'engine.{}'.format(self.__class__.__name__)
         self.logger = logging.getLogger(logger_name)
@@ -112,6 +113,7 @@ class EvolutionaryFuzzingEngine(object):
         self.mutation = mutation
         self.analysis = [] if analysis is None else [a() for a in analysis]
         self.mapping = mapping
+        self.trans_json_path = trans_json_path
 
         # Maxima and minima in population.
         self._fmax, self._fmin, self._fmean = None, None, None
@@ -171,6 +173,15 @@ class EvolutionaryFuzzingEngine(object):
                 # Run all analysis if needed.
                 for a in self.analysis:
                     if g % a.interval == 0:
+                        # 将准备要执行的事务序列, 保存到文件中
+                        if self.trans_json_path is not None:
+                            import json
+                            j = json.load(open(self.trans_json_path))
+                            for o_p in self.population.individuals:
+                                if len(o_p.chromosome) >= 3:
+                                    j[o_p.hash] = o_p.chromosome
+                            # json.dump(j, open(self.trans_json_path, "w"), indent=4)
+
                         a.register_step(g=g, population=self.population, engine=self)
 
                 g += 1

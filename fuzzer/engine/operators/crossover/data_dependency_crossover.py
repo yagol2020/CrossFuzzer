@@ -47,13 +47,13 @@ class DataDependencyCrossover(Crossover):
         mother_reads, mother_writes = DataDependencyCrossover.extract_reads_and_writes(_mother, self.env)
 
         if not mother_reads.isdisjoint(father_writes):
-            child1 = Individual(generator=_father.generator)
+            child1 = Individual(generator=_father.generator, other_generators=_father.other_generators)
             child1.init(chromosome=_father.chromosome + _mother.chromosome)
         else:
             child1 = _father
 
         if not father_reads.isdisjoint(mother_writes):
-            child2 = Individual(generator=_mother.generator)
+            child2 = Individual(generator=_mother.generator,other_generators=_mother.other_generators)
             child2.init(chromosome=_mother.chromosome + _father.chromosome)
         else:
             child2 = _mother
