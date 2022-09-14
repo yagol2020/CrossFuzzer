@@ -3,9 +3,10 @@
 
 import random
 import collections
+from typing import List
 
-from utils import settings
-from utils.utils import *
+from fuzzer.utils import settings
+from fuzzer.utils.utils import *
 
 UINT_MAX = {
     1: int("0xff", 16),
@@ -115,6 +116,7 @@ INT_MIN = {
 MAX_RING_BUFFER_LENGTH = 10
 MAX_ARRAY_LENGTH = 2
 
+
 class CircularSet:
     def __init__(self, set_size=MAX_RING_BUFFER_LENGTH, initial_set=None):
         self._q = collections.deque(maxlen=set_size)
@@ -146,12 +148,19 @@ class CircularSet:
 
 
 class Generator:
-    def __init__(self, interface, bytecode, accounts, contract):
+    """
+    测试用例生成器
+    里面有一个函数, 能够提供一条事务序列
+
+    """
+
+    def __init__(self, interface, bytecode, accounts, contract, other_generators=None):
         self.logger = initialize_logger("Generator")
         self.interface = interface
         self.bytecode = bytecode
         self.accounts = accounts
         self.contract = contract
+        self.other_generators = other_generators if other_generators is not None else []  # type:List[Generator]
 
         # Pools
         self.function_circular_buffer = CircularSet(set_size=len(self.interface), initial_set=set(self.interface))
@@ -170,8 +179,16 @@ class Generator:
         self.bytes_pool = CircularSet()
 
     def generate_random_individual(self):
-        individual = []
+        """
+        生成一条事务序列
+        """
+        individual = []  # 一条事务序列, 里面是很多个函数调用
 
+        # 先执行依赖合约的generators的函数调用, 然后添加主合约的
+        for o_g in self.other_generators:
+            individual.extend(o_g.generate_random_individual())
+        # 添加主合约的函数调用
+        # 首先是构造器
         if "constructor" in self.interface and self.bytecode:
             arguments = ["constructor"]
             for index in range(len(self.interface["constructor"])):
@@ -187,8 +204,9 @@ class Generator:
                 "returndatasize": dict()
             })
 
-        function, argument_types = self.get_random_function_with_argument_types()
-        arguments = [function]
+        # 随机选择一个函数, 并获得他的参数类型
+        function, argument_types = self.get_random_function_with_argument_types()  # 随机选择一个函数, 并获得他的参数类型
+        arguments = [function]  # 参数的第一个, 一定是这个函数的hash
         for index in range(len(argument_types)):
             arguments.append(self.get_random_argument(argument_types[index], function, index))
         individual.append({
@@ -479,7 +497,6 @@ class Generator:
     def add_string_to_pool(self, string):
         self.strings_pool.add(string)
 
-
     def get_random_string_from_pool(self):
         return self.strings_pool.head_and_rotate()
 
@@ -489,7 +506,6 @@ class Generator:
 
     def add_bytes_to_pool(self, string):
         self.bytes_pool.add(string)
-
 
     def get_random_bytes_from_pool(self):
         return self.bytes_pool.head_and_rotate()
@@ -515,7 +531,6 @@ class Generator:
                 del self.argument_array_sizes_pool[function][parameter_index]
                 if len(self.argument_array_sizes_pool[function]) == 0:
                     del self.argument_array_sizes_pool[function]
-
 
     def add_argument_to_pool(self, function, argument_index, argument):
         if type(argument) is list:
@@ -676,37 +691,37 @@ class Generator:
 
         # Bytes1 ... Bytes32
         elif type.startswith("bytes1") or \
-             type.startswith("bytes2") or \
-             type.startswith("bytes3") or \
-             type.startswith("bytes4") or \
-             type.startswith("bytes5") or \
-             type.startswith("bytes6") or \
-             type.startswith("bytes7") or \
-             type.startswith("bytes8") or \
-             type.startswith("bytes9") or \
-             type.startswith("bytes10") or \
-             type.startswith("bytes11") or \
-             type.startswith("bytes12") or \
-             type.startswith("bytes13") or \
-             type.startswith("bytes14") or \
-             type.startswith("bytes15") or \
-             type.startswith("bytes16") or \
-             type.startswith("bytes17") or \
-             type.startswith("bytes18") or \
-             type.startswith("bytes19") or \
-             type.startswith("bytes20") or \
-             type.startswith("bytes21") or \
-             type.startswith("bytes22") or \
-             type.startswith("bytes23") or \
-             type.startswith("bytes24") or \
-             type.startswith("bytes25") or \
-             type.startswith("bytes26") or \
-             type.startswith("bytes27") or \
-             type.startswith("bytes28") or \
-             type.startswith("bytes29") or \
-             type.startswith("bytes30") or \
-             type.startswith("bytes31") or \
-             type.startswith("bytes32"):
+                type.startswith("bytes2") or \
+                type.startswith("bytes3") or \
+                type.startswith("bytes4") or \
+                type.startswith("bytes5") or \
+                type.startswith("bytes6") or \
+                type.startswith("bytes7") or \
+                type.startswith("bytes8") or \
+                type.startswith("bytes9") or \
+                type.startswith("bytes10") or \
+                type.startswith("bytes11") or \
+                type.startswith("bytes12") or \
+                type.startswith("bytes13") or \
+                type.startswith("bytes14") or \
+                type.startswith("bytes15") or \
+                type.startswith("bytes16") or \
+                type.startswith("bytes17") or \
+                type.startswith("bytes18") or \
+                type.startswith("bytes19") or \
+                type.startswith("bytes20") or \
+                type.startswith("bytes21") or \
+                type.startswith("bytes22") or \
+                type.startswith("bytes23") or \
+                type.startswith("bytes24") or \
+                type.startswith("bytes25") or \
+                type.startswith("bytes26") or \
+                type.startswith("bytes27") or \
+                type.startswith("bytes28") or \
+                type.startswith("bytes29") or \
+                type.startswith("bytes30") or \
+                type.startswith("bytes31") or \
+                type.startswith("bytes32"):
             length = int(type.replace("bytes", "").split("[")[0])
             # Array
             if "[" in type and "]" in type:
@@ -756,7 +771,7 @@ class Generator:
 
         # Unknown type
         else:
-            self.logger.error("Unsupported type: "+str(type))
+            self.logger.error("Unsupported type: " + str(type))
 
     def _get_array_sizes(self, argument_index, function, type):
         sizes = []

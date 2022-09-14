@@ -99,7 +99,7 @@ class Fuzzer:
                     self.instrumented_evm.accounts.append(contract_address)
                     self.env.nr_of_transactions += 1
                     logger.info(f"依赖合约 {depend_contract} deployed at\t%s, 由{self.instrumented_evm.accounts[0]}创建", contract_address)
-                    if self.args.trans_json_path is not None:
+                    if self.args.trans_json_path is not None:  # 将合约的部署情况存储起来
                         import json
                         j = json.load(open(self.args.trans_json_path))
                         j[depend_contract] = contract_address
@@ -117,8 +117,7 @@ class Fuzzer:
     def run(self):
         contract_address = None
         self.instrumented_evm.create_fake_accounts()
-        # 在部署完成主合约后, 再依次部署依赖合约
-        generators, populations, interfaces = self.deploy_depend_contracts()
+        generators, populations, interfaces = self.deploy_depend_contracts()  # 先部署依赖合约
         if self.args.source:
             for transaction in self.blockchain_state:
                 if transaction['from'].lower() not in self.instrumented_evm.accounts:
@@ -164,6 +163,11 @@ class Fuzzer:
                         self.instrumented_evm.accounts.append(contract_address)
                         self.env.nr_of_transactions += 1
                         logger.info("Contract deployed at %s", contract_address)
+                        if self.args.trans_json_path is not None:  # 将合约的部署情况存储起来
+                            import json
+                            j = json.load(open(self.args.trans_json_path))
+                            j[self.contract_name] = contract_address
+                            json.dump(j, open(self.args.trans_json_path, "w"), indent=4)
 
             if contract_address in self.instrumented_evm.accounts:
                 self.instrumented_evm.accounts.remove(contract_address)
@@ -178,13 +182,15 @@ class Fuzzer:
         generator = Generator(interface=self.interface,
                               bytecode=self.deployement_bytecode,
                               accounts=self.instrumented_evm.accounts,
-                              contract=contract_address)
+                              contract=contract_address,
+                              other_generators=generators)
 
         # Create initial population
         size = 2 * len(self.interface)
-        population = Population(indv_template=Individual(generator=generator),
+        population = Population(indv_template=Individual(generator=generator, other_generators=generators),
                                 indv_generator=generator,
-                                size=settings.POPULATION_SIZE if settings.POPULATION_SIZE else size).init()
+                                size=settings.POPULATION_SIZE if settings.POPULATION_SIZE else size,
+                                other_generators=generators).init()
 
         # # 用依赖合约的generator/population/interface替换主合约的, 测试是否真的部署了
         # generator = generators[0]
@@ -202,7 +208,8 @@ class Fuzzer:
             mutation = Mutation(pm=settings.PROBABILITY_MUTATION)
 
         # Create and run our evolutionary fuzzing engine
-        engine = EvolutionaryFuzzingEngine(population=population, selection=selection, crossover=crossover, mutation=mutation, mapping=get_function_signature_mapping(self.env.abi))
+        engine = EvolutionaryFuzzingEngine(population=population, selection=selection, crossover=crossover, mutation=mutation,
+                                           mapping=get_function_signature_mapping(self.env.abi), trans_json_path=self.args.trans_json_path)
         engine.fitness_register(lambda x: fitness_function(x, self.env))
         engine.analysis.append(ExecutionTraceAnalyzer(self.env))  # 注册了执行器
 
@@ -434,6 +441,8 @@ def launch_argument_parser():
             print('\033[42;31m!!!!!!use --depend-contracts [A B C]!!!!!!\033[0m')
             sys.exit(-1)
         if args.trans_json_path is not None:
+            if os.path.exists(args.trans_json_path):
+                print('\033[42;31m!!!!!!用于存储事务序列信息的json地址, 已经存在了, 先已覆盖!!!!!!\033[0m')
             import json
             json.dump({}, open(args.trans_json_path, "w"))
 
