@@ -5,6 +5,8 @@ import os
 import sys
 import time
 import json
+from datetime import datetime
+
 import solcx
 import random
 import logging
@@ -27,7 +29,7 @@ from engine.operators import DataDependencyCrossover
 from engine.operators import Mutation
 from engine.fitness import fitness_function
 
-from utils import settings
+from fuzzer.utils import settings
 from utils.source_map import SourceMap
 from utils.utils import initialize_logger, compile, get_interface_from_abi, get_pcs_and_jumpis, get_function_signature_mapping
 from utils.control_flow_graph import ControlFlowGraph
@@ -93,17 +95,14 @@ class Fuzzer:
                 result = self.instrumented_evm.deploy_contract(self.instrumented_evm.accounts[0], deployement_bytecode)  # 将依赖合约部署
                 if result.is_error:
                     logger.error("Problem while deploying contract %s using account %s. Error message: %s", depend_contract, self.instrumented_evm.accounts[0], result._error)
-                    sys.exit(-2)
+                    # 这里原本是退出程序, 但依赖合约部署失败可以不退出, 不影响主程序的大部分fuzz
                 else:
                     contract_address = encode_hex(result.msg.storage_address)
                     self.instrumented_evm.accounts.append(contract_address)
                     self.env.nr_of_transactions += 1
                     logger.info(f"依赖合约 {depend_contract} deployed at\t%s, 由{self.instrumented_evm.accounts[0]}创建", contract_address)
-                    if self.args.trans_json_path is not None:  # 将合约的部署情况存储起来
-                        import json
-                        j = json.load(open(self.args.trans_json_path))
-                        j[depend_contract] = contract_address
-                        json.dump(j, open(self.args.trans_json_path, "w"))
+                    # 存储部署信息
+                    settings.TRANS_INFO[depend_contract] = contract_address
                     generator = Generator(interface=interface, bytecode=deployement_bytecode, accounts=self.instrumented_evm.accounts, contract=contract_address)
                     size = 2 * len(interface)
                     population = Population(indv_template=Individual(generator=generator),
@@ -166,11 +165,8 @@ class Fuzzer:
                         self.instrumented_evm.accounts.append(contract_address)
                         self.env.nr_of_transactions += 1
                         logger.info("Contract deployed at %s", contract_address)
-                        if self.args.trans_json_path is not None:  # 将合约的部署情况存储起来
-                            import json
-                            j = json.load(open(self.args.trans_json_path))
-                            j[self.contract_name] = contract_address
-                            json.dump(j, open(self.args.trans_json_path, "w"), indent=4)
+                        # 将合约的部署情况存储起来
+                        settings.TRANS_INFO[self.contract_name] = contract_address
 
             if contract_address in self.instrumented_evm.accounts:
                 self.instrumented_evm.accounts.remove(contract_address)
@@ -202,8 +198,8 @@ class Fuzzer:
 
         # Create genetic operators
         if self.args.data_dependency:
-            selection = DataDependencyLinearRankingSelection(env=self.env)
-            crossover = DataDependencyCrossover(pc=settings.PROBABILITY_CROSSOVER, env=self.env)
+            selection = DataDependencyLinearRankingSelection(env=self.env)  # 基于写入-写出关系的种子选择
+            crossover = DataDependencyCrossover(pc=settings.PROBABILITY_CROSSOVER, env=self.env)  # 基于数据流的交叉策略
             mutation = Mutation(pm=settings.PROBABILITY_MUTATION)
         else:
             selection = LinearRankingSelection()
@@ -212,7 +208,7 @@ class Fuzzer:
 
         # Create and run our evolutionary fuzzing engine
         engine = EvolutionaryFuzzingEngine(population=population, selection=selection, crossover=crossover, mutation=mutation,
-                                           mapping=get_function_signature_mapping(self.env.abi), trans_json_path=self.args.trans_json_path)
+                                           mapping=get_function_signature_mapping(self.env.abi))
         engine.fitness_register(lambda x: fitness_function(x, self.env))
         engine.analysis.append(ExecutionTraceAnalyzer(self.env))  # 注册了执行器
 
@@ -228,6 +224,9 @@ class Fuzzer:
                 self.env.cfg.save_control_flow_graph(os.path.join(os.path.dirname(self.env.args.abi), self.contract_name), 'pdf')
 
         self.instrumented_evm.reset()
+        settings.TRANS_INFO["end_time"] = str(datetime.now())
+        if settings.OUTPUT_TRANS_INFO:
+            json.dump(settings.TRANS_INFO, open(settings.TRANS_INFO_JSON_PATH, "w"), indent=4)
 
 
 def main():
@@ -445,11 +444,12 @@ def launch_argument_parser():
             print('\033[42;31m!!!!!!if open cross contract mode, you need specify some contract names which depended by main contract!!!!!!\033[0m')
             print('\033[42;31m!!!!!!use --depend-contracts [A B C]!!!!!!\033[0m')
             sys.exit(-1)
-        if args.trans_json_path is not None:
-            if os.path.exists(args.trans_json_path):
-                print('\033[42;31m!!!!!!用于存储事务序列信息的json地址, 已经存在了, 先已覆盖!!!!!!\033[0m')
-            import json
-            json.dump({}, open(args.trans_json_path, "w"))
+    if args.trans_json_path is not None:
+        settings.TRANS_INFO_JSON_PATH = args.trans_json_path
+        print(f'\033[42;31m!!!!!!设置用于存储事务序列信息的json地址{settings.TRANS_INFO_JSON_PATH}!!!!!!\033[0m')
+        if os.path.exists(settings.TRANS_INFO_JSON_PATH):
+            print(f'\033[42;31m!!!!!!用于存储事务序列信息的json地址{settings.TRANS_INFO_JSON_PATH}已经存在了, 现已覆盖!!!!!!\033[0m')
+    settings.MAIN_CONTRACT_NAME = args.contract
 
     return args
 

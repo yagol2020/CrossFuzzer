@@ -7,6 +7,7 @@ from bisect import bisect_right
 
 from ...plugin_interfaces.operators.selection import Selection
 
+
 class DataDependencyLinearRankingSelection(Selection):
     def __init__(self, env, pmin=0.1, pmax=0.9):
         self.env = env
@@ -28,22 +29,22 @@ class DataDependencyLinearRankingSelection(Selection):
         # Add rank to all individuals in population.
         all_fits = population.all_fits(fitness)
         indvs = population.individuals
-        sorted_indvs = sorted(indvs, key=lambda indv: all_fits[indvs.index(indv)])
+        sorted_indvs = sorted(indvs, key=lambda indv: all_fits[indvs.index(indv)])  # 根据适应度对种子集合进行排序
 
         # Individual number.
-        NP = len(sorted_indvs)
+        NP = len(sorted_indvs)  # 种子数量
 
         # Assign selection probabilities linearly.
         # NOTE: Here the rank i belongs to {1, ..., N}
-        p = lambda i: (self.pmin + (self.pmax - self.pmin)*(i-1)/(NP-1))
+        p = lambda i: (self.pmin + (self.pmax - self.pmin) * (i - 1) / (NP - 1))
         probabilities = [self.pmin] + [p(i) for i in range(2, NP)] + [self.pmax]
 
         # Normalize probabilities.
         psum = sum(probabilities)
-        wheel = list(accumulate([p/psum for p in probabilities]))
+        wheel = list(accumulate([p / psum for p in probabilities]))
 
         # Select parents.
-        father_idx = bisect_right(wheel, random())
+        father_idx = bisect_right(wheel, random())  # bisect_right指的是, 在一个有序列表里, 如果要插入一个数, 返回这个数的应该插入的位置
         father = sorted_indvs[father_idx]
 
         father_reads, father_writes = DataDependencyLinearRankingSelection.extract_reads_and_writes(father, self.env)

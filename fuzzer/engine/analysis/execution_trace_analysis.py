@@ -12,14 +12,15 @@ from engine.plugin_interfaces import OnTheFlyAnalysis
 
 from engine.fitness import fitness_function
 
-from utils.utils import initialize_logger, convert_stack_value_to_int, convert_stack_value_to_hex, normalize_32_byte_hex_address, get_function_signature_mapping
+from fuzzer.utils.utils import initialize_logger, convert_stack_value_to_int, convert_stack_value_to_hex, normalize_32_byte_hex_address, get_function_signature_mapping
 from eth._utils.address import force_bytes_to_address
 from eth_utils import to_hex, to_int, int_to_big_endian, encode_hex, ValidationError, to_canonical_address, to_normalized_address
 
 from z3 import simplify, BitVec, BitVecVal, Not, Optimize, sat, unsat, unknown, is_expr
 from z3.z3util import get_vars
 
-from utils import settings
+from fuzzer.utils import settings
+import json
 
 
 class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
@@ -68,7 +69,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
             g + 1, code_coverage_percentage, len(self.env.code_coverage), len(self.env.overall_pcs),
             branch_coverage_percentage, branch_coverage, len(self.env.overall_jumpis) * 2, self.env.nr_of_transactions, len(self.env.unique_individuals),
             time.time() - self.env.execution_begin)
-        if random.randint(1, 50) < 3:  # 别全部输出了, 那么多也没用
+        if random.randint(1, 50) < 5:  # 别全部输出了, 那么多也没用
             self.logger.title(msg)
 
         # Save to results
@@ -84,7 +85,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
             "branch_coverage": branch_coverage_percentage
         })
 
-        if len(self.env.code_coverage) == self.env.previous_code_coverage_length:
+        if len(self.env.code_coverage) == self.env.previous_code_coverage_length:  # 如果这一次覆盖率没有增加, 启动符号执行
             self.symbolic_execution(population.indv_generator)
             if self.symbolic_execution_count == settings.MAX_SYMBOLIC_EXECUTION:
                 del population.individuals[:]
@@ -123,9 +124,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                 continue
 
             try:
-                result = env.instrumented_evm.deploy_transaction(test) # 似乎返回的数据, 是和主合约相同的, 即使事务是依赖合约的
-                # 是监控的问题? 其实事务生效了, 但无法跟踪?
-                # 还是虚拟机被限制了, 只能主合约?
+                result = env.instrumented_evm.deploy_transaction(test)  # 执行事务
             except ValidationError as e:
                 self.logger.error("Validation error in %s : %s (ignoring for now)", indv.hash, e)
                 continue
@@ -151,6 +150,8 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
             sha3 = {}
 
             for i, instruction in enumerate(result.trace):
+                if settings.MAIN_CONTRACT_NAME != "" and settings.TRANS_INFO[settings.MAIN_CONTRACT_NAME] != test["transaction"]["to"]:
+                    break
 
                 env.symbolic_taint_analyzer.propagate_taint(instruction, contract_address)
 
@@ -160,11 +161,12 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
 
                 # If constructor, we don't have to take into account the constructor inputs because they will be part of the
                 # state. We don't have to compute the code coverage, because the code is not the deployed one. We don't need
-                # to compute the cfg because we are on a different code. We actlually don't need analyzing its traces.
+                # to compute the cfg because we are on a different code. We actually don't need analyzing its traces.
                 if indv.chromosome[transaction_index]["arguments"][0] == "constructor":
                     continue
 
-                # Code coverage
+                # Code coverage, 判断是否trace属于主合约, 如果不属于, 那么不添加到code_coverage里
+
                 env.code_coverage.add(hex(instruction["pc"]))
 
                 # Dynamically build control flow graph
@@ -456,14 +458,14 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
         return code_coverage
 
     def symbolic_execution(self, indv_generator):
-        if not self.env.args.constraint_solving:
+        if not self.env.args.constraint_solving:  # 是否启用符号执行模块
             return
 
         for index, pc in enumerate(self.env.visited_branches):
             self.logger.debug("b(%d) pc : %s - visited branches : %s", index, pc,
                               self.env.visited_branches[pc].keys())
 
-            if len(self.env.visited_branches[pc]) != 1:
+            if len(self.env.visited_branches[pc]) != 1:  # 如果这个分支, 已经有2条路径可以出发了, 那么跳过, 没必要为其生成了
                 continue
 
             branch, _d = next(iter(self.env.visited_branches[pc].items()))
@@ -472,24 +474,23 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                 self.logger.debug("No expression for b(%d) pc : %s", index, pc)
                 continue
 
-            negated_branch = simplify(Not(_d["expression"][-1]))
+            negated_branch = simplify(Not(_d["expression"][-1]))  # 反转最后一个条件
 
             if negated_branch in self.env.memoized_symbolic_execution:
                 continue
 
             self.env.solver.reset()
-            for expression_index in range(len(_d["expression"]) - 1):
+            for expression_index in range(len(_d["expression"]) - 1):  # 除了最后一个条件, 其他的条件加入到约束求解器里
                 expression = simplify(_d["expression"][expression_index])
                 self.env.solver.add(expression)
-            self.env.solver.add(negated_branch)
+            self.env.solver.add(negated_branch)  # 将反转条件加入到约束求解器里
 
-            check = self.env.solver.check()
+            check = self.env.solver.check()  # 判断是否满足, 如果满足了, 说明反转条件在约束求解器里可以满足, 存在这么一个值, 让另一个分支成立, 但是! 不一定满足真实情况
 
             if check == sat:
                 model = self.env.solver.model()
 
-                self.logger.debug("(%s) Symbolic Solution to branch %s: %s ", _d["indv_hash"], pc,
-                                  "; ".join([str(x) + " (" + str(model[x]) + ")" for x in model]))
+                self.logger.debug("(%s) Symbolic Solution to branch %s: %s ", _d["indv_hash"], pc, "; ".join([str(x) + " (" + str(model[x]) + ")" for x in model]))
 
                 for variable in model:
                     if str(variable).startswith("underflow"):
@@ -567,7 +568,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                         parameter_index = int(var_split[2])
                         # TODO: THE SOLVER DOES NOT CONSIDER THE MAX SIZE OF THE VARIABLE
                         #   GENERATING LATER A eth_abi.exceptions.ValueOutOfBounds
-                        if "[" in indv_generator.interface[_function_hash][parameter_index]:
+                        if "[" in indv_generator.interface[_function_hash][parameter_index]:  # 如果是数组?
                             if indv_generator.interface[_function_hash][parameter_index].startswith("int"):
                                 argument = model[variable].as_signed_long()
                             elif indv_generator.interface[_function_hash][parameter_index].startswith("address"):
@@ -579,8 +580,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                                         self.env.instrumented_evm.accounts.append(self.env.instrumented_evm.create_fake_account(argument))
                                         self.env.instrumented_evm.create_snapshot()
                                 except Exception as e:
-                                    self.logger.error("(%s) [symbolic execution : calldataload ] %s", _function_hash,
-                                                      e)
+                                    self.logger.error("(%s) [symbolic execution : calldataload ] %s", _function_hash, e)
                                     continue
 
                         elif indv_generator.interface[_function_hash][parameter_index].startswith("int"):
@@ -666,14 +666,14 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                         _function_hash = _d["chromosome"][transaction_index]["arguments"][0]
                         _address = to_normalized_address(var_split[2])
                         indv_generator.add_extcodesize_to_pool(_function_hash, _address, int(var_split[3], 16))
-                        indv_generator.add_extcodesize_to_pool(_function_hash, _address, int(model[variable].as_long()))
+                        # indv_generator.add_extcodesize_to_pool(_function_hash, _address, int(model[variable].as_long()))
 
                     elif str(variable).startswith("returndatasize"):
                         _function_hash = _d["chromosome"][transaction_index]["arguments"][0]
                         _address = to_normalized_address(var_split[2])
                         _size = int(var_split[3], 16)
                         indv_generator.add_returndatasize_to_pool(_function_hash, _address, int(var_split[3], 16))
-                        indv_generator.add_returndatasize_to_pool(_function_hash, _address, int(model[variable].as_long()))
+                        # indv_generator.add_returndatasize_to_pool(_function_hash, _address, int(model[variable].as_long()))
 
                     else:
                         self.logger.warning("Unknown symbolic variable: %s ", str(variable))

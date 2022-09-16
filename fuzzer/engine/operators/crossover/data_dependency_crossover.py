@@ -5,7 +5,7 @@
 
 import random
 
-from utils import settings
+from fuzzer.utils import settings
 from ...plugin_interfaces.operators.crossover import Crossover
 from ...components.individual import Individual
 
@@ -36,12 +36,6 @@ class DataDependencyCrossover(Crossover):
 
         if not do_cross or len(father.chromosome) + len(mother.chromosome) > settings.MAX_INDIVIDUAL_LENGTH:
             return _father, _mother
-
-        #f_a = set([i["arguments"][0] for i in _father.chromosome])
-        #m_a = set([i["arguments"][0] for i in _mother.chromosome])
-        #if not f_a.isdisjoint(m_a):
-        #    if len(f_a.difference(m_a)) == 0 or len(m_a.difference(f_a)) == 0:
-        #        return _father, _mother
 
         father_reads, father_writes = DataDependencyCrossover.extract_reads_and_writes(_father, self.env)
         mother_reads, mother_writes = DataDependencyCrossover.extract_reads_and_writes(_mother, self.env)

@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import logging
+import time
+from datetime import datetime
 
 # Ethereum VM ('homestead', 'byzantium' or 'petersburg')
 EVM_VERSION = "petersburg"
@@ -19,25 +21,33 @@ PROBABILITY_MUTATION = 0.1
 MAX_SYMBOLIC_EXECUTION = 10
 # Solver timeout in milliseconds
 SOLVER_TIMEOUT = 100
-# List of attacker accounts
+# List of attacker accounts
 ATTACKER_ACCOUNTS = ["0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"]
 # Default gas limit for sending transactions
 GAS_LIMIT = 4500000
 # Default gas price for sending transactions
 GAS_PRICE = 10
 # Default account balance
-ACCOUNT_BALANCE = 100000000*(10**18)
-# Maximum length of individuals
+ACCOUNT_BALANCE = 100000000 * (10 ** 18)
+# Maximum length of individuals
 MAX_INDIVIDUAL_LENGTH = 5
-# Logging level
+# Logging level
 LOGGING_LEVEL = logging.INFO
-# Block height
+# Block height
 BLOCK_HEIGHT = 'latest'
 # RPC Host
 RPC_HOST = 'localhost'
-# RPC Port
+# RPC Port
 RPC_PORT = 8545
 # True = Remote fuzzing, False = Local fuzzing
 REMOTE_FUZZING = False
 # True = Environmental instrumentation enabled, False = Environmental instrumentation disabled
 ENVIRONMENTAL_INSTRUMENTATION = True
+# trans_info存储的位置, 默认为/tmp/ConFuzzius_trans.json
+TRANS_INFO_JSON_PATH = "/tmp/ConFuzzius_trans.json"
+# 在内存中加载trans_info, 避免重复I/O
+TRANS_INFO = {"start_time": str(datetime.now())} # 用于统计覆盖率时, 跳过无关合约
+# 主合约名称
+MAIN_CONTRACT_NAME = ""
+# 是否输出trans_info
+OUTPUT_TRANS_INFO = False
