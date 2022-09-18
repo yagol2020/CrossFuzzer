@@ -16,6 +16,10 @@ import cProfile
 import pstats
 import os
 
+# 获取根目录
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/../'
+# 将根目录添加到path中
+sys.path.append(BASE_DIR)
 from fuzzer.utils import settings
 
 from .components import Individual, Population

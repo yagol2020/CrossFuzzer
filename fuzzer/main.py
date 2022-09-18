@@ -29,6 +29,10 @@ from engine.operators import DataDependencyCrossover
 from engine.operators import Mutation
 from engine.fitness import fitness_function
 
+# 获取根目录
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 将根目录添加到path中
+sys.path.append(BASE_DIR)
 from fuzzer.utils import settings
 from utils.source_map import SourceMap
 from utils.utils import initialize_logger, compile, get_interface_from_abi, get_pcs_and_jumpis, get_function_signature_mapping
@@ -116,7 +120,7 @@ class Fuzzer:
     def run(self):
         contract_address = None
         self.instrumented_evm.create_fake_accounts()
-        if self.args.cross_contract == 1:
+        if self.args.cross_contract == 1:  # 若开启了跨合约模式
             generators, populations, interfaces = self.deploy_depend_contracts()  # 先部署依赖合约
         else:
             generators, populations, interfaces = [], [], []
