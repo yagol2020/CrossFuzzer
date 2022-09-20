@@ -6,7 +6,7 @@ Cross Fuzz Contract 实验分析
 import pandas as pd
 import loguru
 
-RESULT_PATH = "result.csv"
+RESULT_PATH = "res/result.csv"
 
 if __name__ == "__main__":
     df = pd.read_csv(RESULT_PATH)
@@ -15,6 +15,11 @@ if __name__ == "__main__":
     draw_cov_counter, draw_bug_counter = 0, 0  # cross和single一样
     win_cov_counter, win_bug_counter = 0, 0  # cross比single好
     total_counter = 0
+
+    # 进一步统计
+    depend_loss_cov_counter, depend_loss_bug_counter = 0, 0  # cross不如single, 即使有依赖
+    depend_draw_cov_counter, depend_draw_bug_counter = 0, 0  # cross和single一样, 即使有依赖
+    depend_win_cov_counter, depend_win_bug_counter = 0, 0  # cross比single好, 即使有依赖
 
     for path, g in df:  # 遍历group
         assert len(g) == 2, "每个path应该只有两个模式"
@@ -36,11 +41,15 @@ if __name__ == "__main__":
                 raise ValueError("mode error")
         if cov_cross > cov_single:
             loguru.logger.success(f"{path} 覆盖率 cross > single | {cov_cross} > {cov_single}")
+            if depend_contract_num_cross > 0:
+                loguru.logger.success(f"可能由于多合约的存在, 覆盖率提升, 依赖的合约个数为: {depend_contract_num_cross}")
+                depend_win_cov_counter += 1
             win_cov_counter += 1
         elif cov_cross < cov_single:
             loguru.logger.error(f"{path} 覆盖率 cross < single | {cov_cross} < {cov_single}")
             if depend_contract_num_cross > 0:
                 loguru.logger.error(f"在存在依赖合约的情况下, 覆盖率仍不如single, 依赖的合约个数为: {depend_contract_num_cross}")
+                depend_loss_cov_counter += 1
             loss_cov_counter += 1
         else:
             loguru.logger.info(f"{path} 覆盖率 cross = single | {cov_cross} = {cov_single}")
@@ -60,3 +69,5 @@ if __name__ == "__main__":
     loguru.logger.info(f"总共{total_counter}个文件")
     loguru.logger.info(f"覆盖率: win: {win_cov_counter}({win_cov_counter / total_counter * 100}%), loss: {loss_cov_counter}({loss_cov_counter / total_counter * 100}%), draw: {draw_cov_counter}({draw_cov_counter / total_counter * 100}%)")
     loguru.logger.info(f"漏洞数: win: {win_bug_counter}({win_bug_counter / total_counter * 100}%), loss: {loss_bug_counter}({loss_bug_counter / total_counter * 100}%), draw: {draw_bug_counter}({draw_bug_counter / total_counter * 100}%)")
+
+    loguru.logger.info(f"在覆盖率win的 {win_cov_counter} 里, 有 {depend_win_cov_counter} 个是存在依赖合约的;\t在覆盖率loss的 {loss_cov_counter} 里, 有 {depend_loss_cov_counter} 个是存在依赖合约的")

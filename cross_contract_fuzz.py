@@ -15,22 +15,23 @@ from typing import List, Dict, Tuple
 
 from slither.core.solidity_types import UserDefinedType
 
-loguru.logger.add("DEBUG.log", rotation="1 day", encoding="utf-8", enqueue=True, backtrace=True, diagnose=True, level="DEBUG")
-loguru.logger.add("INFO.log", rotation="1 day", encoding="utf-8", enqueue=True, backtrace=True, diagnose=True, level="INFO")
-loguru.logger.add("ERROR.log", rotation="1 day", encoding="utf-8", enqueue=True, backtrace=True, diagnose=True, level="ERROR")
-loguru.logger.add("WARNING.log", rotation="1 day", encoding="utf-8", enqueue=True, backtrace=True, diagnose=True, level="WARNING")
+loguru.logger.add("log/DEBUG.log", rotation="1 day", encoding="utf-8", enqueue=True, backtrace=True, diagnose=True, level="DEBUG")
+loguru.logger.add("log/INFO.log", rotation="1 day", encoding="utf-8", enqueue=True, backtrace=True, diagnose=True, level="INFO")
+loguru.logger.add("log/ERROR.log", rotation="1 day", encoding="utf-8", enqueue=True, backtrace=True, diagnose=True, level="ERROR")
+loguru.logger.add("log/WARNING.log", rotation="1 day", encoding="utf-8", enqueue=True, backtrace=True, diagnose=True, level="WARNING")
 
 SOLC = "/home/yy/anaconda3/envs/ConFuzzius/bin/solc"
 FUZZER = "/home/yy/ConFuzzius-Cross/fuzzer/main.py"
 PYTHON = "/home/yy/anaconda3/envs/ConFuzzius/bin/python"
 MAIN_NET_INFO_PATH = "/home/yy/Dataset/mainnet/contracts.json"
-MAX_FUZZ_FILE_SIZE = 10  # 一轮实验里, fuzz多少个文件?
-TIME_TO_FUZZ = 5  # 单位: 秒
+MAX_FUZZ_FILE_SIZE = 2  # 一轮实验里, fuzz多少个文件?
+assert MAX_FUZZ_FILE_SIZE % 2 == 0
+TIME_TO_FUZZ = 120  # 单位: 秒
 
-THRESHOLD = 2  # 事务数量超过这个值, 才会被选中
+THRESHOLD = 5  # 事务数量超过这个值, 才会被选中
 
 loguru.logger.info(f"任务数量: {MAX_FUZZ_FILE_SIZE}, Fuzz时间: {TIME_TO_FUZZ}秒")
-loguru.logger.info(f"预计执行时间: {MAX_FUZZ_FILE_SIZE * 2 * TIME_TO_FUZZ / 60}分钟")
+loguru.logger.info(f"预计最低执行时间: {MAX_FUZZ_FILE_SIZE * 2 * TIME_TO_FUZZ / 60}分钟")
 time.sleep(1)  # 休息几秒钟, 查看任务设置
 
 
@@ -55,22 +56,23 @@ def load_dataset(dir_path: str, debug_mode: bool = False) -> Tuple[str, str, lis
     if debug_mode:
         yield "/home/yy/Dataset/E.sol", "E"
     else:
+        paths = []  # 所有sol文件的路径, 用于打乱, 否则总是那么几个文件
         for root, dirs, files in os.walk(dir_path):
             for file in files:
                 if file.endswith(".sol"):
-                    if random.random() > 0.6 or "E.sol" in file:  # 随机跳过
-                        continue
                     p = os.path.join(root, file)
-                    address = "0x" + p.split("/")[-1].replace(".sol", "").split("_")[0]
-                    contract_name = p.split("/")[-1].replace(".sol", "").split("_")[-1]
-                    assert len(address) == 42, "地址的长度为2+40"
-                    if load_ethereum_mainnet_info(_query_address=address) and check_compile(p):
-                        _depend_contracts = analysis_depend_contract(file_path=p, _contract_name=contract_name)
-                        if len(_depend_contracts) == 0 and random.random() > 0.5:
-                            loguru.logger.info("由于没有依赖合约, 一定几率下, 该文件被跳过了(^_^)")
-                            continue  # 如果没有依赖合约, 显示不出方法的优势, 一定几率下跳过这个
-                        if "mainnet" in p:
-                            yield p, contract_name, _depend_contracts
+                    paths.append(p)
+        random.shuffle(paths)
+        for p in paths:
+            if len(os.path.basename(p).replace(".sol", "").split("_")) != 2:
+                continue
+            address = "0x" + os.path.basename(p).replace(".sol", "").split("_")[0]
+            contract_name = os.path.basename(p).replace(".sol", "").split("_")[1]
+            assert len(address) == 42, "地址的长度为2 + 40"
+            if load_ethereum_mainnet_info(_query_address=address) and check_compile(p):
+                _depend_contracts = analysis_depend_contract(file_path=p, _contract_name=contract_name)
+                if "mainnet" in p:
+                    yield p, contract_name, _depend_contracts
 
 
 def check_compile(file_path: str):
@@ -140,6 +142,8 @@ class FuzzerResult:
 
 class Result:
     def __init__(self):
+        self.single_count = 0
+        self.cross_count = 0
         self.res = {}  # type:Dict[str, List[FuzzerResult]]
 
     def append(self, _path, _fuzzer_result):
@@ -159,17 +163,17 @@ class Result:
                 loguru.logger.warning(f"存在不合法的结果, 该结果有{len(rs)}个结果, {p}")
                 self.res.pop(p)
 
-    def inspect_exam(self, inner_out=False):
+    def inspect_exam(self, inner_out=False, csv_path=None):
         """
         实验过程中检测
         """
         self.remove_un_validate()
         loguru.logger.info("已经过滤不合法的结果, 剩余结果数量: " + str(len(self.res)))
-        if inner_out:
-            self.plot()
+        if inner_out and csv_path is not None:
+            self.plot(csv_path=csv_path, online_plot=False)
         return len(self.res)
 
-    def plot(self, csv_path=None, plot_path=None, excel_path=None):
+    def plot(self, csv_path=None, plot_path=None, excel_path=None, online_plot=False):
         """
         plot_path为None时, 图片保存, 不在线输出
         """
@@ -218,7 +222,8 @@ class Result:
         if plot_path is not None:
             plt.savefig(plot_path, dpi=500)
         else:
-            plt.show()
+            if online_plot:
+                plt.show()
         if csv_path is not None:
             df.to_csv(csv_path, index=False)
         if excel_path is not None:
@@ -228,10 +233,10 @@ class Result:
 def run_fuzzer(file_path: str, _main_contract, solc_version: str, evm_version: str, timeout: int, _depend_contracts: list, max_individual_length: int, _cross_contract: int):
     import uuid
     uuid = uuid.uuid4()
-    res_path = f"/tmp/{uuid}.json"
+    res_path = f"/tmp/ConFuzzius-{uuid}.json"
     loguru.logger.info(f"UUID为{uuid}")
-    _depend_contracts_str = " ".join(_depend_contracts)
-    cmd = f"{PYTHON} {FUZZER} -s {file_path} -c {_main_contract} --solc {solc_version} --evm {evm_version} -t {timeout} --cross-contract {_cross_contract} --depend-contracts {_depend_contracts_str} --constraint-solving 0  --result {res_path} --max-individual-length {max_individual_length}"
+    depend_contracts_str = " ".join(_depend_contracts)
+    cmd = f"{PYTHON} {FUZZER} -s {file_path} -c {_main_contract} --solc {solc_version} --evm {evm_version} -t {timeout} --cross-contract {_cross_contract} --depend-contracts {depend_contracts_str} --constraint-solving 0  --result {res_path} --max-individual-length {max_individual_length}"
     loguru.logger.debug(f"执行命令: {cmd}")
     os.popen(cmd).read()
     if os.path.exists(res_path):
@@ -239,18 +244,35 @@ def run_fuzzer(file_path: str, _main_contract, solc_version: str, evm_version: s
         code_coverage = res["code_coverage"]["percentage"]
         detect_result = res["errors"]
         return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts))
+    else:
+        loguru.logger.warning(f"执行命令: {cmd} 时, 未能生成结果文件, 请检查")
+        return None
 
 
 if __name__ == "__main__":
     r = Result()
     for path, main_contract, depend_contracts in load_dataset("/home/yy/Dataset"):
+        # 判断single和cross数量是否相等, 且为MAX_FUZZ_FILE_SIZE的一半
+        if len(depend_contracts) == 0 and r.single_count >= MAX_FUZZ_FILE_SIZE / 2:
+            loguru.logger.warning("单合约数量已经达到上限, 跳过")
+            continue
+        elif len(depend_contracts) > 0 and r.cross_count >= MAX_FUZZ_FILE_SIZE / 2:
+            loguru.logger.warning("多合约数量已经达到上限, 跳过")
+            continue
         loguru.logger.info(f"正在处理{path}")
         r_c = run_fuzzer(file_path=path, _cross_contract=1, _main_contract=main_contract, solc_version="v0.4.26", evm_version="byzantium", timeout=TIME_TO_FUZZ, _depend_contracts=depend_contracts, max_individual_length=10)
         r_no_c = run_fuzzer(file_path=path, _cross_contract=2, _main_contract=main_contract, solc_version="v0.4.26", evm_version="byzantium", timeout=TIME_TO_FUZZ, _depend_contracts=[], max_individual_length=10)
         r.append(path, r_c)
         r.append(path, r_no_c)
-        total_exec = r.inspect_exam(inner_out=False)
+        if r_c is not None and r_no_c is not None:  # 只有在成功的情况下, 才更新两个count的值
+            if len(depend_contracts) == 0:
+                r.single_count += 1
+            elif len(depend_contracts) > 0:
+                r.cross_count += 1
+        total_exec = r.inspect_exam(inner_out=True, csv_path="res/result.csv")
         if total_exec >= MAX_FUZZ_FILE_SIZE:
             break
+    # assert r.single_count == r.cross_count == MAX_FUZZ_FILE_SIZE / 2
+    # assert len(r.res) == r.single_count + r.cross_count
     r.remove_un_validate()
-    r.plot(csv_path="result.csv", plot_path="result.png", excel_path="result.xlsx")
+    r.plot(csv_path="res/result.csv", plot_path="res/result.png", excel_path="res/result.xlsx")

@@ -1,0 +1,5 @@
+path,mode,coverage,index,find_bug_count,depend_contract_num
+/home/yy/Dataset/mainnet/8d/8d2AAE6a7EB63Ba89c36e82385f096d41074Cd87_Wallet.sol,single,87.85463818935288,1,6,0
+/home/yy/Dataset/mainnet/fe/fe9b5e8f7e8f6493f7d8532d915c9d53dffe9080_ArtCore.sol,single,90.49839696881375,2,3,0
+/home/yy/Dataset/mainnet/8d/8d2AAE6a7EB63Ba89c36e82385f096d41074Cd87_Wallet.sol,cross,94.0707682499203,1,8,0
+/home/yy/Dataset/mainnet/fe/fe9b5e8f7e8f6493f7d8532d915c9d53dffe9080_ArtCore.sol,cross,94.25823375109297,2,3,1

@@ -391,7 +391,7 @@ class Generator:
             self.returndatasize_pool[function][address] = CircularSet()
         self.returndatasize_pool[function][address].add(size)
 
-    def get_random_returndatasize_and_address(self, function):
+    def get_random_returndatasize_and_address(self, function):  # 这是在模拟return data size?
         if function in self.returndatasize_pool:
             address = random.choice(list(self.returndatasize_pool[function].keys()))
             return address, self.returndatasize_pool[function][address].head_and_rotate()
@@ -562,7 +562,7 @@ class Generator:
         # Boolean
         if type.startswith("bool"):
             # Array
-            if "[" in type and "]" in type:
+            if "[" in type and "]" in type:  # 如果是数组
                 sizes = self._get_array_sizes(argument_index, function, type)
                 array = []
                 for _ in range(sizes[0]):
@@ -576,7 +576,7 @@ class Generator:
                             array.append(False)
                         else:
                             array.append(True)
-                if len(sizes) > 1:
+                if len(sizes) > 1:  # 啥意思, 多维数组?
                     new_array = []
                     for _ in range(sizes[1]):
                         new_array.append(array)
@@ -615,7 +615,7 @@ class Generator:
             else:
                 if function in self.arguments_pool and argument_index in self.arguments_pool[function]:
                     return self._get_random_argument_from_pool(function, argument_index)
-                return self.get_random_unsigned_integer(0, UINT_MAX[bytes])
+                return self.get_random_unsigned_integer(0, UINT_MAX[bytes])  # 生成无符号整型
 
         # Signed integer
         elif type.startswith("int"):
@@ -639,7 +639,7 @@ class Generator:
             else:
                 if function in self.arguments_pool and argument_index in self.arguments_pool[function]:
                     return self._get_random_argument_from_pool(function, argument_index)
-                return self.get_random_signed_integer(INT_MIN[bytes], INT_MAX[bytes])
+                return self.get_random_signed_integer(INT_MIN[bytes], INT_MAX[bytes])  # 生成有符号整型
 
         # Address
         elif type.startswith("address"):
@@ -662,7 +662,7 @@ class Generator:
             else:
                 if function in self.arguments_pool and argument_index in self.arguments_pool[function]:
                     return self._get_random_argument_from_pool(function, argument_index)
-                return random.choice(self.accounts)
+                return random.choice(self.accounts)  # 从账号库中, 随机挑选一个
 
         # String
         elif type.startswith("string"):
@@ -683,11 +683,11 @@ class Generator:
                 if function in self.arguments_pool and argument_index in self.arguments_pool[function]:
                     return self._get_random_argument_from_pool(function, argument_index)
                 if self.strings_pool.empty:
-                    self.add_string_to_pool(self.get_string(0))
+                    self.add_string_to_pool(self.get_string(0))  # 随机生成长度为0的字符串, 添加到pool中
                     self.add_string_to_pool(self.get_string(1))
                     self.add_string_to_pool(self.get_string(32))
                     self.add_string_to_pool(self.get_string(33))
-                return self.get_random_string_from_pool()
+                return self.get_random_string_from_pool()  # 从pool中随机挑选一个字符串
 
         # Bytes1 ... Bytes32
         elif type.startswith("bytes1") or \
@@ -771,7 +771,7 @@ class Generator:
 
         # Unknown type
         else:
-            self.logger.error("Unsupported type: " + str(type))
+            self.logger.error("Unsupported type: " + str(type))  # 不支持其他类型
 
     def _get_array_sizes(self, argument_index, function, type):
         sizes = []
@@ -809,9 +809,12 @@ class Generator:
             return random.randint(min, max)
 
     @staticmethod
-    def get_string(length):
+    def get_string(length):  # 随机生成一个指定长度的字符串
         return ''.join('A' for _ in range(length))
 
     @staticmethod
     def get_random_bytes(length):
+        """
+        随机获得length长度的字节序列
+        """
         return bytearray(random.getrandbits(8) for _ in range(length))

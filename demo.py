@@ -23,4 +23,18 @@ def json_test():
         print(j)
 
 
-json_test()
+def cross_cfg_test():
+    import os
+    import pydot
+    SURYA = "/usr/local/bin/surya"
+    cmd = f"{SURYA} graph ~/Dataset/E.sol > /tmp/E.dot"
+    print(cmd)
+    os.popen(cmd).read()
+
+    dot = pydot.graph_from_dot_file("/tmp/E.dot")
+    assert len(dot) == 1
+    dot = dot[0]
+    print(dot)
+
+
+cross_cfg_test()

@@ -42,7 +42,7 @@ class Mutation(Mutation):
                                                                                 argument_index - 1)
                             gene["arguments"][argument_index] = argument
                         else:
-                            for o_g in individual.other_generators:
+                            for o_g in individual.other_generators:  # 跨合约的事务, 需要去别的generator里寻找
                                 if function_hash in o_g.interface.keys():
                                     argument_type = o_g.interface[function_hash][argument_index - 1]
                                     argument = o_g.get_random_argument(argument_type,

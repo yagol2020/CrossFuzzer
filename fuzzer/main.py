@@ -202,7 +202,7 @@ class Fuzzer:
 
         # Create genetic operators
         if self.args.data_dependency:
-            selection = DataDependencyLinearRankingSelection(env=self.env)  # 基于写入-写出关系的种子选择
+            selection = DataDependencyLinearRankingSelection(env=self.env)  # 基于Read After Write关系的种子选择
             crossover = DataDependencyCrossover(pc=settings.PROBABILITY_CROSSOVER, env=self.env)  # 基于数据流的交叉策略
             mutation = Mutation(pm=settings.PROBABILITY_MUTATION)
         else:
@@ -213,7 +213,7 @@ class Fuzzer:
         # Create and run our evolutionary fuzzing engine
         engine = EvolutionaryFuzzingEngine(population=population, selection=selection, crossover=crossover, mutation=mutation,
                                            mapping=get_function_signature_mapping(self.env.abi))
-        engine.fitness_register(lambda x: fitness_function(x, self.env))
+        engine.fitness_register(lambda x: fitness_function(x, self.env))  # 计算x的适应度, x是individual
         engine.analysis.append(ExecutionTraceAnalyzer(self.env))  # 注册了执行器
 
         self.env.execution_begin = time.time()

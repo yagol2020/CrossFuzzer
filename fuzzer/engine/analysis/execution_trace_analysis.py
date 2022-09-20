@@ -7,10 +7,8 @@ import time
 import json
 import psutil
 
-from engine.environment import FuzzingEnvironment
-from engine.plugin_interfaces import OnTheFlyAnalysis
-
-from engine.fitness import fitness_function
+from fuzzer.engine.environment import FuzzingEnvironment
+from fuzzer.engine.plugin_interfaces import OnTheFlyAnalysis
 
 from fuzzer.utils.utils import initialize_logger, convert_stack_value_to_int, convert_stack_value_to_hex, normalize_32_byte_hex_address, get_function_signature_mapping
 from eth._utils.address import force_bytes_to_address
@@ -151,6 +149,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
 
             for i, instruction in enumerate(result.trace):
                 if settings.MAIN_CONTRACT_NAME != "" and settings.TRANS_INFO[settings.MAIN_CONTRACT_NAME] != test["transaction"]["to"]:
+                    # 对于跨合约的情况, 暂时不统计其他合约
                     break
 
                 env.symbolic_taint_analyzer.propagate_taint(instruction, contract_address)
