@@ -4,8 +4,9 @@
 import random
 import collections
 from typing import List
-
+from typing import Tuple
 from fuzzer.utils import settings
+from fuzzer.utils.transaction_seq_utils import cross_cfg_test, get_trans_from_cache
 from fuzzer.utils.utils import *
 
 UINT_MAX = {
@@ -154,12 +155,15 @@ class Generator:
 
     """
 
-    def __init__(self, interface, bytecode, accounts, contract, other_generators=None):
+    def __init__(self, interface, bytecode, accounts, contract, other_generators=None, interface_mapper=None, contract_name=None, sol_path=None):
         self.logger = initialize_logger("Generator")
         self.interface = interface
+        self.interface_mapper = interface_mapper
         self.bytecode = bytecode
         self.accounts = accounts
-        self.contract = contract
+        self.contract = contract  # 合约部署的地址
+        self.contract_name = contract_name  # 合约名称
+        self.sol_path = sol_path  # 合约文件地址, 用于跨合约分析
         self.other_generators = other_generators if other_generators is not None else []  # type:List[Generator]
 
         # Pools
@@ -178,17 +182,43 @@ class Generator:
         self.strings_pool = CircularSet()
         self.bytes_pool = CircularSet()
 
-    def generate_random_individual(self):
+    def generate_individual_by_cross(self):
         """
-        生成一条事务序列
+        根据指定的序列, 生成一个含有参数的序列
         """
-        individual = []  # 一条事务序列, 里面是很多个函数调用
-
-        # 先执行依赖合约的generators的函数调用, 然后添加主合约的
+        individual = []
         for o_g in self.other_generators:
-            individual.extend(o_g.generate_random_individual())
-        # 添加主合约的函数调用
-        # 首先是构造器
+            individual.extend(o_g.generate_constructor())
+        func_sigs: List[Tuple[str, str]] = [("E", "func_k(address)"),
+                                            ("E", "func_a(uint256)"),
+                                            ("K", "set_m(address)"),
+                                            ("K", "func_c(uint256)"),
+                                            ("M", "func_d(uint256)"),
+                                            ("E", "bug()")]  # (contract_name, func_sig)
+        real_individual = []
+        if self.sol_path is not None:
+            target_f_name, trans = get_trans_from_cache()
+            for c_name, f_name in trans:
+                if c_name == self.contract_name:
+                    function, argument_types = self.get_specific_function_with_argument_types_without_arg_support(f_name)
+                    real_individual.extend(self.generate_individual(function, argument_types))
+                else:
+                    for o_g in self.other_generators:
+                        if c_name == o_g.contract_name:
+                            function, argument_types = o_g.get_specific_function_with_argument_types_without_arg_support(f_name)
+                            real_individual.extend(o_g.generate_individual(function, argument_types))
+                            break
+        if len(real_individual) == 0:
+            individual.extend(self.generate_randon_individual_without_constructor())
+        else:
+            individual.extend(real_individual)
+        return individual
+
+    def generate_constructor(self):
+        """
+        仅生成构造函数的事务序列
+        """
+        individual = []
         if "constructor" in self.interface and self.bytecode:
             arguments = ["constructor"]
             for index in range(len(self.interface["constructor"])):
@@ -203,9 +233,13 @@ class Generator:
                 "gaslimit": self.get_random_gaslimit("constructor"),
                 "returndatasize": dict()
             })
+        return individual
 
-        # 随机选择一个函数, 并获得他的参数类型
-        function, argument_types = self.get_random_function_with_argument_types()  # 随机选择一个函数, 并获得他的参数类型
+    def generate_individual(self, function, argument_types):
+        """
+        生成一个含有参数的序列
+        """
+        individual = []
         arguments = [function]  # 参数的第一个, 一定是这个函数的hash
         for index in range(len(argument_types)):
             arguments.append(self.get_random_argument(argument_types[index], function, index))
@@ -230,6 +264,29 @@ class Generator:
 
         address, value = self.get_random_returndatasize_and_address(function)
         individual[-1]["returndatasize"] = {address: value}
+        return individual
+
+    def generate_randon_individual_without_constructor(self):
+        individual = []
+        function, argument_types = self.get_random_function_with_argument_types()  # 随机选择一个函数, 并获得他的参数类型
+        individual.extend(self.generate_individual(function, argument_types))
+        return individual
+
+    def generate_random_individual(self):
+        """
+        生成一条事务序列
+        """
+        individual = []  # 一条事务序列, 里面是很多个函数调用
+
+        # 先执行依赖合约的generators的函数调用, 然后添加主合约的
+        for o_g in self.other_generators:
+            individual.extend(o_g.generate_random_individual())
+        # 添加主合约的函数调用
+        # 首先是构造器
+        individual.extend(self.generate_constructor())
+
+        # 随机选择一个函数, 并获得他的参数类型
+        individual.extend(self.generate_randon_individual_without_constructor())
 
         return individual
 
@@ -261,6 +318,14 @@ class Generator:
         if function_hash == "constructor":
             function_hash = self.function_circular_buffer.head_and_rotate()
         return function_hash, self.interface[function_hash]
+
+    def get_specific_function_with_argument_types(self, function_signature):
+        return self.interface_mapper[function_signature], self.interface[self.interface_mapper[function_signature]]
+
+    def get_specific_function_with_argument_types_without_arg_support(self, function_name):
+        for f_name_args, f_sign in self.interface_mapper.items():
+            if f_name_args.startswith(function_name):
+                return self.get_specific_function_with_argument_types(f_name_args)
 
     #
     # TIMESTAMP

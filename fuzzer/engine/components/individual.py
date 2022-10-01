@@ -27,7 +27,10 @@ class Individual():
 
     def init(self, chromosome=None):
         if not chromosome:
-            self.chromosome = self.generator.generate_random_individual()
+            if random.choice([True, False]):
+                self.chromosome = self.generator.generate_random_individual()
+            else:
+                self.chromosome = self.generator.generate_individual_by_cross()
         else:
             self.chromosome = chromosome
         self.solution = self.decode()
@@ -53,9 +56,6 @@ class Individual():
                     if transaction["to"] == o_g.contract:
                         transaction["data"] = self.get_transaction_data_from_chromosome(i, o_g)
                         break
-            if "data" not in transaction.keys():
-                print()
-
             block = {}
             if "timestamp" in self.chromosome[i] and self.chromosome[i]["timestamp"] is not None:
                 block["timestamp"] = copy(self.chromosome[i]["timestamp"])

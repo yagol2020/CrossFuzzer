@@ -46,8 +46,12 @@ ENVIRONMENTAL_INSTRUMENTATION = True
 # trans_info存储的位置, 默认为/tmp/ConFuzzius_trans.json
 TRANS_INFO_JSON_PATH = "/tmp/ConFuzzius_trans.json"
 # 在内存中加载trans_info, 避免重复I/O
-TRANS_INFO = {"start_time": str(datetime.now())} # 用于统计覆盖率时, 跳过无关合约
+TRANS_INFO = {"start_time": str(datetime.now())}  # 用于统计覆盖率时, 跳过无关合约
 # 主合约名称
 MAIN_CONTRACT_NAME = ""
 # 是否输出trans_info
 OUTPUT_TRANS_INFO = False
+# SOLC地址, 用于cross slither
+SOLC_PATH_CROSS = ""
+# SURYA地址, 用于cross CFG
+SURYA_PATH_CROSS = ""

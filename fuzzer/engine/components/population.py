@@ -47,7 +47,7 @@ class Population(object):
         # Template individual.
         self.indv_template = indv_template
 
-        #  Generator individual.
+        # Generator individual.
         self.indv_generator = indv_generator
 
         # Flag for monitoring changes of population.

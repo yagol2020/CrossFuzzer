@@ -3,12 +3,25 @@
 
 """
 import json
-from typing import List
+import random
+from enum import Enum
+from typing import List, Dict
+
+import loguru
+import numpy
+from pydot import Node
+from slither import Slither
+import networkx as nx
+from slither.core.expressions import CallExpression, MemberAccess, Identifier
+import matplotlib.pyplot as plt
+import pydot
+import os
+import os
+import pydot
+from slither.core.variables.state_variable import StateVariable
 
 
 def dot_test():
-    import pydot
-    import os
     dot_str = os.popen("surya graph ~/Dataset/E.sol").read()
     os.popen("surya graph ~/Dataset/E.sol | dot -Tpng > ~/Dataset/E.png").read()
     dot = pydot.graph_from_dot_data(dot_str)
@@ -23,18 +36,35 @@ def json_test():
         print(j)
 
 
-def cross_cfg_test():
-    import os
-    import pydot
-    SURYA = "/usr/local/bin/surya"
-    cmd = f"{SURYA} graph ~/Dataset/E.sol > /tmp/E.dot"
-    print(cmd)
-    os.popen(cmd).read()
-
-    dot = pydot.graph_from_dot_file("/tmp/E.dot")
-    assert len(dot) == 1
-    dot = dot[0]
-    print(dot)
+def test_docker():
+    import docker
+    client = docker.from_env()
+    container = client.containers.run(image="confuzzius", volumes=['/tmp:/tmp'], command="python3 fuzzer/main.py -s /tmp/E.sol --solc v0.4.26 --evm byzantium -t 10 --result /tmp/123.json", detach=True)
+    result = container.wait()
+    print(result)
+    output = container.logs()
+    print(output)
 
 
-cross_cfg_test()
+def test_datatime():
+    import datetime
+    dt = datetime.datetime.now()
+    print(dt)
+
+
+def test_nx():
+    G = nx.DiGraph([(1, 2), (1, 3), (2, 3), (3, 4)])
+    # 判断G是否存在回环
+    print(nx.is_directed_acyclic_graph(G))
+    nx.draw(G, with_labels=True)
+    import matplotlib.pyplot as plt
+    plt.show()
+    roots = (n for n, d in G.in_degree() if d == 0)
+    leaves = (n for n, d in G.out_degree() if d == 0)
+    res = []
+    for root in roots:
+        for p in nx.all_simple_paths(G, root, leaves):
+            res.append(p)
+    print(res)
+
+# test_nx()

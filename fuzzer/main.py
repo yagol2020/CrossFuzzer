@@ -28,6 +28,7 @@ from engine.operators import Crossover
 from engine.operators import DataDependencyCrossover
 from engine.operators import Mutation
 from engine.fitness import fitness_function
+from fuzzer.utils.transaction_seq_utils import cross_cfg_test, check_cross_init
 
 # 获取根目录
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,7 +51,7 @@ class Fuzzer:
         cfg.build(runtime_bytecode, settings.EVM_VERSION)
 
         self.contract_name = contract_name
-        self.interface = get_interface_from_abi(abi)
+        self.interface, self.interface_mapper = get_interface_from_abi(abi)
         self.deployement_bytecode = deployment_bytecode
         self.blockchain_state = blockchain_state
         self.instrumented_evm = test_instrumented_evm
@@ -82,6 +83,8 @@ class Fuzzer:
                                       seed=seed,
                                       cfg=cfg,
                                       abi=abi)
+        cross_cfg_test(args.source)  # 初始化分析跨合约序列
+        assert check_cross_init(), "跨合约初始化失败"  # 检查是否初始化成功
 
     def deploy_depend_contracts(self):
         generators, populations = [], []
@@ -91,7 +94,7 @@ class Fuzzer:
             sys.exit(-1)
         for depend_contract in self.depend_contracts:
             # 得到这个合约的interface
-            interface = get_interface_from_abi(self.whole_compile_info[depend_contract]['abi'])
+            interface, interface_mapper = get_interface_from_abi(self.whole_compile_info[depend_contract]['abi'])
             deployement_bytecode = self.whole_compile_info[depend_contract]['evm']['bytecode']['object']
             if "constructor" in interface:
                 del interface['constructor']
@@ -107,7 +110,7 @@ class Fuzzer:
                     logger.info(f"依赖合约 {depend_contract} deployed at\t%s, 由{self.instrumented_evm.accounts[0]}创建", contract_address)
                     # 存储部署信息
                     settings.TRANS_INFO[depend_contract] = contract_address
-                    generator = Generator(interface=interface, bytecode=deployement_bytecode, accounts=self.instrumented_evm.accounts, contract=contract_address)
+                    generator = Generator(interface=interface, bytecode=deployement_bytecode, accounts=self.instrumented_evm.accounts, contract=contract_address, interface_mapper=interface_mapper, contract_name=depend_contract, sol_path=self.args.source)
                     size = 2 * len(interface)
                     population = Population(indv_template=Individual(generator=generator),
                                             indv_generator=generator,
@@ -186,7 +189,10 @@ class Fuzzer:
                               bytecode=self.deployement_bytecode,
                               accounts=self.instrumented_evm.accounts,
                               contract=contract_address,
-                              other_generators=generators)
+                              other_generators=generators,
+                              interface_mapper=self.interface_mapper,
+                              contract_name=self.contract_name,
+                              sol_path=self.args.source)
 
         # Create initial population
         size = 2 * len(self.interface)
@@ -371,6 +377,8 @@ def launch_argument_parser():
     parser.add_argument("--cross-contract", type=int, help="open cross contract mode, open -- 1, close -- 2 (default)", action="store", dest="cross_contract", default=2)
     parser.add_argument("--depend-contracts", type=str, nargs="*", help="main fuzzed contract depend those contracts, you should give some names.", dest="depend_contracts")
     parser.add_argument("--trans-json-path", type=str, help="location to save trans info to json", dest="trans_json_path")
+    parser.add_argument("--solc-path-cross", type=str, help="solc path, used by cross-slither", dest="solc_path_cross")
+    parser.add_argument("--surya-path-cross", type=str, help="surya path, used by cross-cfg", dest="surya_path_cross")
 
     version = "ConFuzzius - Version 0.0.2 - "
     version += "\"By three methods we may learn wisdom:\n"
@@ -454,6 +462,14 @@ def launch_argument_parser():
         if os.path.exists(settings.TRANS_INFO_JSON_PATH):
             print(f'\033[42;31m!!!!!!用于存储事务序列信息的json地址{settings.TRANS_INFO_JSON_PATH}已经存在了, 现已覆盖!!!!!!\033[0m')
     settings.MAIN_CONTRACT_NAME = args.contract
+    settings.SOLC_PATH_CROSS = args.solc_path_cross
+    settings.SURYA_PATH_CROSS = args.surya_path_cross
+    if settings.SOLC_PATH_CROSS == None:
+        print('\033[42;31m!!!!!!you need specify a solc path!!!!!!\033[0m')
+        sys.exit(-1)
+    if settings.SURYA_PATH_CROSS == None:
+        print('\033[42;31m!!!!!!you need specify a surya path!!!!!!\033[0m')
+        sys.exit(-1)
 
     return args
 

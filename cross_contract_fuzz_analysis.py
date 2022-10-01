@@ -10,6 +10,7 @@ RESULT_PATH = "res/result.csv"
 
 if __name__ == "__main__":
     df = pd.read_csv(RESULT_PATH)
+    df = df.drop_duplicates(keep=False, subset=["path", "mode", "coverage", "find_bug_count", "depend_contract_num"])
     df = df.groupby("path")
     loss_cov_counter, loss_bug_counter = 0, 0  # cross不如single
     draw_cov_counter, draw_bug_counter = 0, 0  # cross和single一样
@@ -52,7 +53,7 @@ if __name__ == "__main__":
                 depend_loss_cov_counter += 1
             loss_cov_counter += 1
         else:
-            loguru.logger.info(f"{path} 覆盖率 cross = single | {cov_cross} = {cov_single}")
+            # loguru.logger.info(f"{path} 覆盖率 cross = single | {cov_cross} = {cov_single}")
             draw_cov_counter += 1
         if bug_cross > bug_single:
             loguru.logger.success(f"{path} 漏洞数 cross > single | {bug_cross} > {bug_single}")
@@ -61,7 +62,7 @@ if __name__ == "__main__":
             loguru.logger.error(f"{path} 漏洞数 cross < single | {bug_cross} < {bug_single}")
             loss_bug_counter += 1
         else:
-            loguru.logger.info(f"{path} 漏洞数 cross = single | {bug_cross} = {bug_single}")
+            # loguru.logger.info(f"{path} 漏洞数 cross = single | {bug_cross} = {bug_single}")
             draw_bug_counter += 1
         loguru.logger.info("=======================================")
     assert total_counter == win_cov_counter + loss_cov_counter + draw_cov_counter

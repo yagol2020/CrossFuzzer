@@ -13,6 +13,7 @@ import subprocess
 from web3 import Web3
 from .settings import LOGGING_LEVEL
 
+
 def initialize_logger(name):
     logger = logging.getLogger(name)
     logger.title = lambda *a: logger.info(*[bold(x) for x in a])
@@ -24,26 +25,34 @@ def initialize_logger(name):
     logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     return logger
 
+
 def bold(x):
     return "".join(['\033[1m', x, '\033[0m']) if isinstance(x, str) else x
+
 
 def red(x):
     return "".join(['\033[91m', x, '\033[0m']) if isinstance(x, str) else x
 
+
 def code_bool(value: bool):
     return str(int(value)).zfill(64)
+
 
 def code_uint(value):
     return hex(value).replace("0x", "").zfill(64)
 
+
 def code_int(value):
     return hex(value).replace("0x", "").zfill(64)
+
 
 def code_address(value):
     return value.zfill(64)
 
+
 def code_bytes(value):
     return value.ljust(64, "0")
+
 
 def code_type(value, type):
     if type == "bool":
@@ -59,10 +68,12 @@ def code_type(value, type):
     else:
         raise Exception()
 
+
 def run_command(cmd):
     FNULL = open(os.devnull, 'w')
     p = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=FNULL)
     return p.communicate()[0]
+
 
 def compile(solc_version, evm_version, source_code_file):
     out = None
@@ -71,7 +82,7 @@ def compile(solc_version, evm_version, source_code_file):
         source_code = file.read()
     try:
         if not str(solc_version).startswith("v"):
-            solc_version = "v"+str(solc_version.truncate())
+            solc_version = "v" + str(solc_version.truncate())
         if not solc_version in solcx.get_installed_solc_versions():
             solcx.install_solc(solc_version)
         solcx.set_solc_version(solc_version, True)
@@ -102,8 +113,10 @@ def compile(solc_version, evm_version, source_code_file):
         print(e.message)
     return out
 
+
 def get_interface_from_abi(abi):
     interface = {}
+    interface_mapper = {}  # 记录函数名和函数签名的映射
     for field in abi:
         if field['type'] == 'function':
             function_name = field['name']
@@ -118,6 +131,7 @@ def get_interface_from_abi(abi):
             signature += ')'
             hash = Web3.sha3(text=signature)[0:4].hex()
             interface[hash] = function_inputs
+            interface_mapper[signature] = hash
         elif field['type'] == 'constructor':
             function_inputs = []
             for i in range(len(field['inputs'])):
@@ -126,7 +140,8 @@ def get_interface_from_abi(abi):
             interface['constructor'] = function_inputs
     if not "fallback" in interface:
         interface["fallback"] = []
-    return interface
+    return interface, interface_mapper
+
 
 def get_function_signature_mapping(abi):
     mapping = {}
@@ -147,6 +162,7 @@ def get_function_signature_mapping(abi):
         mapping["fallback"] = "fallback"
     return mapping
 
+
 def remove_swarm_hash(bytecode):
     if isinstance(bytecode, str):
         if bytecode.endswith("0029"):
@@ -154,6 +170,7 @@ def remove_swarm_hash(bytecode):
         if bytecode.endswith("0033"):
             bytecode = re.sub(r"5056fe.*?0033$", "5056", bytecode)
     return bytecode
+
 
 def get_pcs_and_jumpis(bytecode):
     bytecode = bytes.fromhex(remove_swarm_hash(bytecode).replace("0x", ""))
@@ -163,15 +180,16 @@ def get_pcs_and_jumpis(bytecode):
     while i < len(bytecode):
         opcode = bytecode[i]
         pcs.append(i)
-        if opcode == 87: # JUMPI
+        if opcode == 87:  # JUMPI
             jumpis.append(hex(i))
-        if opcode >= 96 and opcode <= 127: # PUSH
+        if opcode >= 96 and opcode <= 127:  # PUSH
             size = opcode - 96 + 1
             i += size
         i += 1
     if len(pcs) == 0:
         pcs = [0]
     return (pcs, jumpis)
+
 
 def convert_stack_value_to_int(stack_value):
     if stack_value[0] == int:
@@ -181,6 +199,7 @@ def convert_stack_value_to_int(stack_value):
     else:
         raise Exception("Error: Cannot convert stack value to int. Unknown type: " + str(stack_value[0]))
 
+
 def convert_stack_value_to_hex(stack_value):
     if stack_value[0] == int:
         return hex(stack_value[1]).replace("0x", "").zfill(64)
@@ -189,11 +208,14 @@ def convert_stack_value_to_hex(stack_value):
     else:
         raise Exception("Error: Cannot convert stack value to hex. Unknown type: " + str(stack_value[0]))
 
+
 def is_fixed(value):
     return isinstance(value, int)
 
+
 def split_len(seq, length):
     return [seq[i:i + length] for i in range(0, len(seq), length)]
+
 
 def print_individual_solution_as_transaction(logger, individual_solution, color="", function_signature_mapping={}, transaction_index=None):
     for index, input in enumerate(individual_solution):
@@ -205,29 +227,30 @@ def print_individual_solution_as_transaction(logger, individual_solution, color=
                 hash = transaction["data"][0:8]
             if len(individual_solution) == 1 or (transaction_index != None and transaction_index == 0):
                 if hash in function_signature_mapping:
-                    logger.title(color+"Transaction - " + function_signature_mapping[hash] + ":")
+                    logger.title(color + "Transaction - " + function_signature_mapping[hash] + ":")
                 else:
-                    logger.title(color+"Transaction:")
+                    logger.title(color + "Transaction:")
             else:
                 if hash in function_signature_mapping:
-                    logger.title(color+"Transaction " + str(index + 1) + " - " + function_signature_mapping[hash] + ":")
+                    logger.title(color + "Transaction " + str(index + 1) + " - " + function_signature_mapping[hash] + ":")
                 else:
-                    logger.title(color+"Transaction " + str(index + 1) + ":")
-            logger.title(color+"-----------------------------------------------------")
-            logger.title(color+"From:      " + transaction["from"])
-            logger.title(color+"To:        " + str(transaction["to"]))
-            logger.title(color+"Value:     " + str(transaction["value"]) + " Wei")
-            logger.title(color+"Gas Limit: " + str(transaction["gaslimit"]))
+                    logger.title(color + "Transaction " + str(index + 1) + ":")
+            logger.title(color + "-----------------------------------------------------")
+            logger.title(color + "From:      " + transaction["from"])
+            logger.title(color + "To:        " + str(transaction["to"]))
+            logger.title(color + "Value:     " + str(transaction["value"]) + " Wei")
+            logger.title(color + "Gas Limit: " + str(transaction["gaslimit"]))
             i = 0
             for data in split_len("0x" + transaction["data"].replace("0x", ""), 42):
                 if i == 0:
-                    logger.title(color+"Input:     " + str(data))
+                    logger.title(color + "Input:     " + str(data))
                 else:
-                    logger.title(color+"           " + str(data))
+                    logger.title(color + "           " + str(data))
                 i += 1
-            logger.title(color+"-----------------------------------------------------")
+            logger.title(color + "-----------------------------------------------------")
             if transaction_index != None and index + 1 > transaction_index:
                 break
+
 
 def normalize_32_byte_hex_address(value):
     as_bytes = eth_utils.to_bytes(hexstr=value)
