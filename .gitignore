@@ -144,3 +144,5 @@ experiments
 *.sol
 .idea
 trans.json
+*.dot
+*.png
