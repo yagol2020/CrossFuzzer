@@ -6,6 +6,7 @@ import multiprocessing
 import os
 import random
 import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -31,7 +32,7 @@ PYTHON = "python3"  # docker内的python3
 MAIN_NET_INFO_PATH = "/home/yy/Dataset/mainnet/contracts.json"  # 用于获得每个合约的trans数量
 DOCKER_IMAGES_NAME = "confuzzius"  # docker镜像的名字
 MAX_FUZZ_FILE_SIZE = 200  # 一轮实验里, fuzz多少个文件?
-TIME_TO_FUZZ = 60 * 60  # 单位: 秒
+TIME_TO_FUZZ = 20 * 60  # 单位: 秒
 
 RESULT_APPEND_MODE = False  # 追加模式?非追加模式下, 直接生成全新的文件, 如果启用了中间inspect, 则每次生成一个新的文件
 
@@ -67,7 +68,7 @@ def load_ethereum_mainnet_info(_query_address) -> bool:
 @loguru.logger.catch()
 def load_dataset(dir_path: str, debug_mode: bool = False) -> Tuple[str, str, list]:
     if debug_mode:
-        yield "/home/yy/Dataset/E.sol", "E"
+        yield "/home/yy/Dataset/E.sol", "E", ["M", "K"]
     else:
         paths = []  # 所有sol文件的路径, 用于打乱, 否则总是那么几个文件
         for root, dirs, files in os.walk(dir_path):
@@ -79,10 +80,12 @@ def load_dataset(dir_path: str, debug_mode: bool = False) -> Tuple[str, str, lis
         for p in paths:
             if len(os.path.basename(p).replace(".sol", "").split("_")) != 2:
                 continue
+            # if p != "/home/yy/Dataset/mainnet/1d/1d4ccc31dab6ea20f461d329a0562c1c58412515_TalaoToken.sol":
+            #     continue
             address = "0x" + os.path.basename(p).replace(".sol", "").split("_")[0]
             contract_name = os.path.basename(p).replace(".sol", "").split("_")[1]
             assert len(address) == 42, "地址的长度为2 + 40"
-            if load_ethereum_mainnet_info(_query_address=address) and check_compile(p):
+            if load_ethereum_mainnet_info(_query_address=address) and check_compile(p) and check_surya(p):
                 _depend_contracts = analysis_depend_contract(file_path=p, _contract_name=contract_name)
                 if len(_depend_contracts) == 0 and random.randint(0, 50) > 40:
                     loguru.logger.debug("跳过非跨合约文件.......")
@@ -96,6 +99,19 @@ def check_compile(file_path: str):
         Slither(file_path, solc=SOLC)
     except Exception as e:
         loguru.logger.error(f"Compile error: {file_path}, {str(e).split()[0:1]}")
+        return False
+    return True
+
+
+def check_surya(file_path: str):
+    HOST_SURYA_PATH = "/usr/local/bin/surya"
+    test_surya_cmd = f"{HOST_SURYA_PATH} graph {file_path}"
+    try:
+        output = subprocess.check_output(test_surya_cmd, shell=True)
+        if output == b'':
+            raise Exception("surya error")
+    except Exception as e:
+        loguru.logger.error(f"Surya error: {file_path}, {str(e).split()[0:1]}")
         return False
     return True
 
@@ -128,7 +144,7 @@ def analysis_depend_contract(file_path: str, _contract_name: str) -> list:
                     loguru.logger.debug("通过分析合约内函数的参数, 发现依赖的合约: {}".format(p.type.type.name))
             # 3. 分析函数的写入变量, 如果是合约类型, 那么也需要部署
             for v in f.variables_written:
-                if isinstance(v.type, UserDefinedType) and hasattr(v.type, "type") and isinstance(v.type.type, Contract):
+                if hasattr(v, "type") and isinstance(v.type, UserDefinedType) and hasattr(v.type, "type") and isinstance(v.type.type, Contract):
                     res.add(v.type.type.name)
                     loguru.logger.debug("通过分析函数的写入变量(局部和状态都算), 发现依赖的合约: {}".format(v.type.type.name))
         # 3. 分析合约内的继承关系, 添加到待分析队列中
@@ -183,7 +199,7 @@ class Result:
         返回当前Result里已有多少合法结果
         """
         self.remove_un_validate()
-        loguru.logger.info("中间检查: 已经过滤不合法的结果, 剩余结果数量: " + str(len(self.res)))
+        loguru.logger.success("中间检查: 已经过滤不合法的结果, 剩余结果数量: " + str(len(self.res)))
         if inner_out and csv_path is not None and RESULT_APPEND_MODE is False:  # 如果启动了追加模式, 不要进入plot函数增加csv文件
             self.plot(csv_path=csv_path, online_plot=False)
         return len(self.res)
@@ -254,27 +270,31 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
     file_path = f"/tmp/ConFuzzius-{uuid}.sol"
     shutil.copyfile(_file_path, file_path)  # 移动到/tmp里, 这个是和docker的共享目录
     loguru.logger.info(f"UUID为{uuid}")
-    depend_contracts_str = " ".join(_depend_contracts)
-    cmd = f"{PYTHON} {FUZZER} -s {file_path} -c {_main_contract} --solc {solc_version} --evm {evm_version} -t {timeout} --cross-contract {_cross_contract} --depend-contracts {depend_contracts_str} --constraint-solving 0  --result {res_path} --max-individual-length {max_individual_length}"
-    loguru.logger.debug(f"执行命令: {cmd}")
-    run_in_docker(cmd)
+    if _cross_contract == 1:
+        depend_contracts_str = " ".join(_depend_contracts)
+        cmd = f"{PYTHON} {FUZZER} -s {file_path} -c {_main_contract} --solc {solc_version} --evm {evm_version} -t {timeout} --cross-contract {_cross_contract} --depend-contracts {depend_contracts_str} --constraint-solving 0  --result {res_path} --max-individual-length {max_individual_length} --solc-path-cross /usr/local/bin/solc --surya-path-cross /usr/local/bin/surya"
+        run_in_docker(cmd, _images="confuzzius-cross")
+    else:
+        cmd = f"{PYTHON} {FUZZER} -s {file_path} -c {_main_contract} --solc {solc_version} --evm {evm_version} -t {timeout} --constraint-solving 0 --result {res_path} --max-individual-length {max_individual_length}"
+        run_in_docker(cmd, _images="confuzzius-origin")
     if os.path.exists(res_path):
         res = json.load(open(res_path))[_main_contract]
         code_coverage = res["code_coverage"]["percentage"]
         detect_result = res["errors"]
         return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts))
     else:
-        loguru.logger.warning(f"执行命令: {cmd} 时, 未能生成结果文件, 请检查")
+        loguru.logger.warning(f"执行命令: {cmd}, 模式为 {_cross_contract} 时, 未能生成结果文件, 请检查")
         return None
 
 
-def run_in_docker(cmd: str):
+def run_in_docker(cmd: str, _images: str):
     """
     基于docker运行cmd
     """
     try:
         client = docker.from_env()
-        container = client.containers.run(image="confuzzius", volumes=['/tmp:/tmp'], command=cmd, detach=True)
+        container = client.containers.run(image=_images, volumes=['/tmp:/tmp'], command=cmd, detach=True)
+        loguru.logger.debug(f"执行命令: {cmd}, container id: {container.id}, image: {_images}")
         result = container.wait()
         output = container.logs()
         if output is None or result is None or (result is not None and "Error" in result.items() and result["Error"] is not None):

@@ -6,3 +6,4 @@ psutil==5.7.2
 networkx==2.5.1
 pydot==1.4.2
 slither-analyzer==0.8.3
+matplotlib==3.3.4

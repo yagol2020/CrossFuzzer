@@ -2,20 +2,10 @@
 静态分析获得跨合约事务序列
 @author: yagol
 
-
-
- func_sigs: List[Tuple[str, str]] = [("E", "func_k(address)"),
-                                            ("E", "func_a(uint256)"),
-                                            ("K", "set_m(address)"),
-                                            ("K", "func_c(uint256)"),
-                                            ("M", "func_d(uint256)"),
-                                            ("E", "bug()")]  # (contract_name, func_sig)
-
-
-
 """
 import os
 import random
+import subprocess
 from enum import Enum
 import uuid
 
@@ -29,8 +19,6 @@ from slither.core.variables.state_variable import StateVariable
 
 from fuzzer.utils import settings
 
-
-# SOLC_PATH = "/usr/local/bin/solc"
 visited = set()
 trans_seq = [[], [], [], [], [], [], [], [], [], [], [], [], [], []]
 cache = []  # 该文件的所有函数, 所对应的跨合约序列
@@ -90,10 +78,9 @@ def cross_cfg_test(sol_path):
     # 首先，处理好每个合约内部的数据流, 至于函数调用控制流, 交给SURYA处理
     SOLC_PATH = settings.SOLC_PATH_CROSS
     SURYA = settings.SURYA_PATH_CROSS
-    uuid_str = str(uuid.uuid1())
-    cmd = f"{SURYA} graph {sol_path} > /tmp/{uuid_str}.dot"
-    os.popen(cmd).read()
-    dot = pydot.graph_from_dot_file(f"/tmp/{uuid_str}.dot")
+    cmd = f"{SURYA} graph {sol_path}"
+    output = subprocess.check_output(cmd, shell=True)
+    dot = pydot.graph_from_dot_data(output.decode('utf-8'))
     assert len(dot) == 1
     dot = dot[0]
     sl = Slither(sol_path, solc=SOLC_PATH)
@@ -123,7 +110,7 @@ def cross_cfg_test(sol_path):
     g = nx.DiGraph()
     all_function_node = []
     for node in dot.get_node_list():
-        if "." not in node.get_name():
+        if "." not in node.get_name() or len(node.get_name().replace("\"", "").split(".")) != 2:
             continue
         ctc, func = node.get_name().replace("\"", "").split(".")
         if func == "<Constructor>":
@@ -143,7 +130,7 @@ def cross_cfg_test(sol_path):
         if "_" in sub_graph.get_name():
             continue
         for node in sub_graph.get_node_list():
-            if "." not in node.get_name():
+            if "." not in node.get_name() or len(node.get_name().replace("\"", "").split(".")) != 2:
                 continue
             ctc, func = node.get_name().replace("\"", "").split(".")
             if func == "<Constructor>":
@@ -165,7 +152,11 @@ def cross_cfg_test(sol_path):
                 g.add_node(func_node.desc(), content=func_node)
     for edge in dot.get_edge_list():
         source = edge.get_source().replace("\"", "")
+        if "Fallback" in source:
+            continue
         dest = edge.get_destination().replace("\"", "")
+        if "Fallback" in dest:
+            continue
         if "<Constructor>" in source or "<Constructor>" in dest:
             continue
         color = edge.get_attributes()["color"].replace("\"", "")
@@ -174,6 +165,8 @@ def cross_cfg_test(sol_path):
             source = source + f"({MyType.FUNCTION})"
             dest = dest + f"({MyType.FUNCTION})"
             source_node = g.nodes[source]["content"].function
+            if source_node is None:
+                continue
             for external_call_exp in source_node.external_calls_as_expressions:
                 if isinstance(external_call_exp, CallExpression):
                     if hasattr(external_call_exp.called, "expression"):
@@ -181,6 +174,8 @@ def cross_cfg_test(sol_path):
                             external_state = external_call_exp.called.expression.value.name
             if external_state is not None:
                 g.add_edge(source, dest, label=MyEdgeType.CROSS_INVOKE, external_state_var=g.nodes[source]['content'].sl_contract.name + "." + external_state + f"({MyType.STATE_VARIABLE})")
+            else:
+                g.add_edge(source, dest, label=MyEdgeType.CROSS_INVOKE, external_state_var="Parameter_YAGOL")
         elif color == "red":  # 状态变量写入, source是函数, dest是状态变量
             source = source + f"({MyType.FUNCTION})"
             dest = dest + f"({MyType.STATE_VARIABLE})"
@@ -223,11 +218,14 @@ def cross_cfg_test(sol_path):
     # nx.nx_pydot.write_dot(g, "test.dot")
     all_function_node = set([node.desc() for node in all_function_node])
     for node_choose in all_function_node:
+        if "Fallback" in node_choose:
+            continue
         clean()
         deep(_node=node_choose, _g=g, _index=1)
         for trans in trans_seq.copy():
             if len(trans) == 0:
                 trans_seq.remove(trans)
+        trans_seq.reverse()
         random_trans = []
         for index, trans in enumerate(trans_seq):
             trans_r = trans.copy()
@@ -239,13 +237,31 @@ def cross_cfg_test(sol_path):
         for tran in random_trans:
             temp = tran.replace("(" + str(MyType.FUNCTION) + ")", "")
             c_name, f_sign = temp.split(".")
-            ret.append((c_name, f_sign))
+            if f_sign == "fallback":
+                continue
+            c_sl = sl.get_contract_from_name(c_name)[0]
+            skip = False
+            seek = False
+            for f_seek in c_sl.functions:
+                if f_seek.name == f_sign:
+                    seek = True  # 必须是函数
+                    if f_seek.visibility == "internal" or f_seek.visibility == "private":
+                        skip = True  # 如果是internal，跳过
+                        break
+                    else:
+                        break
+            if not skip and seek:
+                ret.append((c_name, f_sign))
+        if len(ret) == 0:
+            continue
         global cache, init
         cache.append((node_choose, ret))
     init = True
 
 
 def deep(_node, _g, _index, _select=False, _predecessor=None):
+    if _node == "Parameter_YAGOL":  # 他来自与参数，不是状态变量，无需寻找他的setter
+        return
     if _predecessor is None:
         _predecessor = []
     _l = f"{_node}"
@@ -275,7 +291,9 @@ def deep(_node, _g, _index, _select=False, _predecessor=None):
             deep(_node=cross_depend_contract, _g=_g, _index=_index)
             deep(_node=successor, _g=_g, _index=_index)
 
-# cross_cfg_test("/home/yy/ConFuzzius-Cross/examples/T.sol")
-# print(cache)
-# cross_cfg_test("/home/yy/Dataset/E.sol")
-# print(cache)
+
+settings.SOLC_PATH_CROSS = "/home/yy/anaconda3/envs/ConFuzzius/bin/solc"
+settings.SURYA_PATH_CROSS = "/usr/local/bin/surya"
+cross_cfg_test("/home/yy/ConFuzzius-Cross/examples/T.sol")
+for f, trans in cache:
+    print(f, "==>\t\t\t", trans)
