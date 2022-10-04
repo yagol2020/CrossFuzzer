@@ -189,12 +189,6 @@ class Generator:
         individual = []
         for o_g in self.other_generators:
             individual.extend(o_g.generate_constructor())
-        func_sigs: List[Tuple[str, str]] = [("E", "func_k(address)"),
-                                            ("E", "func_a(uint256)"),
-                                            ("K", "set_m(address)"),
-                                            ("K", "func_c(uint256)"),
-                                            ("M", "func_d(uint256)"),
-                                            ("E", "bug()")]  # (contract_name, func_sig)
         real_individual = []
         if self.sol_path is not None:
             target_f_name, trans = get_trans_from_cache()
@@ -550,9 +544,11 @@ class Generator:
         if function in self.amounts_pool:
             amount = self.get_random_amount_from_pool(function)
         else:
-            amount = random.randint(0, 1)
+            MAX_AMOUNT = 10
+            amount = random.randint(0, MAX_AMOUNT)
             self.add_amount_to_pool(function, amount)
-            self.add_amount_to_pool(function, 1 - amount)
+            self.add_amount_to_pool(function, MAX_AMOUNT - amount)
+            self.add_amount_to_pool(function, 0)
         return amount
 
     #

@@ -32,7 +32,7 @@ PYTHON = "python3"  # docker内的python3
 MAIN_NET_INFO_PATH = "/home/yy/Dataset/mainnet/contracts.json"  # 用于获得每个合约的trans数量
 DOCKER_IMAGES_NAME = "confuzzius"  # docker镜像的名字
 MAX_FUZZ_FILE_SIZE = 200  # 一轮实验里, fuzz多少个文件?
-TIME_TO_FUZZ = 20 * 60  # 单位: 秒
+TIME_TO_FUZZ = 60 * 60  # 单位: 秒
 
 RESULT_APPEND_MODE = False  # 追加模式?非追加模式下, 直接生成全新的文件, 如果启用了中间inspect, 则每次生成一个新的文件
 
@@ -48,27 +48,45 @@ loguru.logger.info(f"任务数量: {MAX_FUZZ_FILE_SIZE}, Fuzz时间: {TIME_TO_FU
 loguru.logger.info(f"预计最低执行时间: {MAX_FUZZ_FILE_SIZE * 2 * TIME_TO_FUZZ / 60}分钟, 即{MAX_FUZZ_FILE_SIZE * 2 * TIME_TO_FUZZ / 60 / 60}小时")
 time.sleep(1)  # 休息几秒钟, 查看任务设置
 
+mainnet_info = {}
 
-def load_ethereum_mainnet_info(_query_address) -> bool:
+
+def cache_mainnet_info():
     """
-    用于判断这个文件, 事务数量是否超过指定值
+    缓存mainnet的信息
     """
     lines = open(MAIN_NET_INFO_PATH).readlines()
     for line in lines:
         j = json.loads(line)
         address = j["address"]
-        trans_count = j["txcount"]  # 事务数量
-        if address == _query_address and trans_count > THRESHOLD:
-            loguru.logger.info(f"该合约的事务数量为: {trans_count} > {THRESHOLD}, 符合条件")
-            return True
-    loguru.logger.warning(f"该合约不符合事务数量阈值, 跳过")
-    return False
+        trans_count = j["txcount"]
+        mainnet_info[address] = trans_count
+    loguru.logger.success("成功缓存main net事务数据......")
+
+
+cache_mainnet_info()
+
+
+def load_ethereum_mainnet_info(_query_address) -> bool:
+    """
+    用于判断这个文件, 事务数量是否超过指定值
+    """
+
+    trans_count = mainnet_info.get(_query_address, -1)
+    if trans_count > THRESHOLD:
+        loguru.logger.info(f"该合约的事务数量为: {trans_count} > {THRESHOLD}, 符合条件")
+        return True
+    else:
+        loguru.logger.warning(f"该合约不符合事务数量阈值, 跳过")
+        return False
 
 
 @loguru.logger.catch()
-def load_dataset(dir_path: str, debug_mode: bool = False) -> Tuple[str, str, list]:
+def load_dataset(dir_path: str, debug_mode: bool = True) -> Tuple[str, str, list]:
     if debug_mode:
-        yield "/home/yy/Dataset/E.sol", "E", ["M", "K"]
+        BE_TEST_PATH = "/home/yy/ConFuzzius-Cross/examples/T.sol"
+        BE_TEST_CONTRACT_NAME = "ETH_FUND"
+        yield BE_TEST_PATH, BE_TEST_CONTRACT_NAME, analysis_depend_contract(file_path=BE_TEST_PATH, _contract_name=BE_TEST_CONTRACT_NAME)
     else:
         paths = []  # 所有sol文件的路径, 用于打乱, 否则总是那么几个文件
         for root, dirs, files in os.walk(dir_path):
@@ -80,14 +98,12 @@ def load_dataset(dir_path: str, debug_mode: bool = False) -> Tuple[str, str, lis
         for p in paths:
             if len(os.path.basename(p).replace(".sol", "").split("_")) != 2:
                 continue
-            # if p != "/home/yy/Dataset/mainnet/1d/1d4ccc31dab6ea20f461d329a0562c1c58412515_TalaoToken.sol":
-            #     continue
             address = "0x" + os.path.basename(p).replace(".sol", "").split("_")[0]
             contract_name = os.path.basename(p).replace(".sol", "").split("_")[1]
             assert len(address) == 42, "地址的长度为2 + 40"
             if load_ethereum_mainnet_info(_query_address=address) and check_compile(p) and check_surya(p):
                 _depend_contracts = analysis_depend_contract(file_path=p, _contract_name=contract_name)
-                if len(_depend_contracts) == 0 and random.randint(0, 50) > 40:
+                if len(_depend_contracts) == 0:
                     loguru.logger.debug("跳过非跨合约文件.......")
                     continue  # 跳过非跨合约的文件, 这类文件没有比较的意义了
                 if "mainnet" in p:

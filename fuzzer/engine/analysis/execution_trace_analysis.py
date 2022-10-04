@@ -67,7 +67,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
             g + 1, code_coverage_percentage, len(self.env.code_coverage), len(self.env.overall_pcs),
             branch_coverage_percentage, branch_coverage, len(self.env.overall_jumpis) * 2, self.env.nr_of_transactions, len(self.env.unique_individuals),
             time.time() - self.env.execution_begin)
-        if random.randint(1, 50) < 5:  # 别全部输出了, 那么多也没用
+        if random.randint(1, 50) < 25:  # 别全部输出了, 那么多也没用
             self.logger.title(msg)
 
         # Save to results

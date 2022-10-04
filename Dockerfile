@@ -3,7 +3,7 @@ FROM ubuntu:18.04
 MAINTAINER Yagol (yhw_yagol@bistu.edu.cn)
 SHELL ["/bin/bash", "-c"]
 RUN apt-get update
-RUN apt-get install -y sudo wget tar unzip pandoc python-setuptools python-pip python-dev python-virtualenv git build-essential software-properties-common python3-pip npm
+RUN apt-get install -y sudo wget tar unzip pandoc python-setuptools python-pip python-dev python-virtualenv git build-essential software-properties-common python3-pip npm graphviz
 
 # Install solidity
 RUN wget https://github.com/ethereum/solidity/releases/download/v0.4.26/solc-static-linux && chmod +x solc-static-linux && mv solc-static-linux /usr/local/bin/solc

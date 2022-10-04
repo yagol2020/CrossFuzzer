@@ -27,7 +27,7 @@ class Individual():
 
     def init(self, chromosome=None):
         if not chromosome:
-            if random.choice([True, False]):
+            if random.choice([True]):
                 self.chromosome = self.generator.generate_random_individual()
             else:
                 self.chromosome = self.generator.generate_individual_by_cross()

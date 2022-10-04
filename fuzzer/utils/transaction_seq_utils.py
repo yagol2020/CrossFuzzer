@@ -83,6 +83,7 @@ def cross_cfg_test(sol_path):
     dot = pydot.graph_from_dot_data(output.decode('utf-8'))
     assert len(dot) == 1
     dot = dot[0]
+    # dot.write_png(f"DOT.png")
     sl = Slither(sol_path, solc=SOLC_PATH)
 
     for contract in sl.contracts:
@@ -105,7 +106,7 @@ def cross_cfg_test(sol_path):
                         sub_graph.add_edge(edge)
                 break
     # dot to png
-    # dot.write_png(f"/tmp/{uuid_str}.png")
+    # dot.write_png(f"DOT_SV.png")
     # print(f"dot file: /tmp/{uuid_str}.dot")
     g = nx.DiGraph()
     all_function_node = []
@@ -127,7 +128,7 @@ def cross_cfg_test(sol_path):
         all_function_node.append(func_node)
         g.add_node(func_node.desc(), content=func_node)
     for sub_graph in dot.get_subgraph_list():
-        if "_" in sub_graph.get_name():
+        if sub_graph.get_name().startswith("cluster_"):
             continue
         for node in sub_graph.get_node_list():
             if "." not in node.get_name() or len(node.get_name().replace("\"", "").split(".")) != 2:
@@ -189,7 +190,7 @@ def cross_cfg_test(sol_path):
             dest = dest + f"({MyType.FUNCTION})"
             g.add_edge(source, dest, label=MyEdgeType.INNER_INVOKE)
     for sub_graph in dot.get_subgraph_list():
-        if "_" in sub_graph.get_name():
+        if sub_graph.get_name().startswith("cluster_"):
             continue
         for edge in sub_graph.get_edge_list():
             source = edge.get_source().replace("\"", "")
@@ -291,9 +292,9 @@ def deep(_node, _g, _index, _select=False, _predecessor=None):
             deep(_node=cross_depend_contract, _g=_g, _index=_index)
             deep(_node=successor, _g=_g, _index=_index)
 
-
-settings.SOLC_PATH_CROSS = "/home/yy/anaconda3/envs/ConFuzzius/bin/solc"
-settings.SURYA_PATH_CROSS = "/usr/local/bin/surya"
-cross_cfg_test("/home/yy/ConFuzzius-Cross/examples/T.sol")
-for f, trans in cache:
-    print(f, "==>\t\t\t", trans)
+# settings.SOLC_PATH_CROSS = "/home/yy/anaconda3/envs/ConFuzzius/bin/solc"
+# settings.SURYA_PATH_CROSS = "/usr/local/bin/surya"
+# # -s /tmp/ConFuzzius-d65a7d0e-6ab8-471f-91c8-46a2be2de544.sol -c DappleAirdrops
+# cross_cfg_test("/home/yy/ConFuzzius-Cross/examples/T.sol")
+# for f, trans in cache:
+#     print(f, "==>\t\t\t", trans)

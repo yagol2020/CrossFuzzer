@@ -85,6 +85,7 @@ class Fuzzer:
                                       abi=abi)
         cross_cfg_test(args.source)  # 初始化分析跨合约序列
         assert check_cross_init(), "跨合约初始化失败"  # 检查是否初始化成功
+        print("跨合约初始化成功......")
 
     def deploy_depend_contracts(self):
         generators, populations = [], []
@@ -128,7 +129,7 @@ class Fuzzer:
         else:
             generators, populations, interfaces = [], [], []
         if self.args.source:
-            for transaction in self.blockchain_state:
+            for transaction in self.blockchain_state:  # 如果块内有初始事务, 执行他们
                 if transaction['from'].lower() not in self.instrumented_evm.accounts:
                     self.instrumented_evm.accounts.append(self.instrumented_evm.create_fake_account(transaction['from']))
 
