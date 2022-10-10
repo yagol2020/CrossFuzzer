@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 
 import os
+import random
+import string
 import sys
 import pickle
 import logging
+from typing import List
 
 from eth import Chain, constants
 from eth.chains.mainnet import (
@@ -35,9 +38,13 @@ from .storage_emulation import (
     ByzantiumVMForFuzzTesting,
     PetersburgVMForFuzzTesting
 )
-
-from utils import settings
-from utils.utils import initialize_logger
+# 获取根目录
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/../'
+# 将根目录添加到path中
+sys.path.append(BASE_DIR)
+from fuzzer.utils import settings
+from fuzzer.utils.utils import initialize_logger
+from eth_abi import encode_abi
 
 
 class InstrumentedEVM:
@@ -142,7 +149,45 @@ class InstrumentedEVM:
         address = to_canonical_address(address)
         return self.vm.state._account_db._has_account(address)
 
-    def deploy_contract(self, creator, bin_code, amount=0, gas=settings.GAS_LIMIT, gas_price=settings.GAS_PRICE, debug=False):
+    def deploy_contract(self, creator, bin_code, amount=0, gas=settings.GAS_LIMIT, gas_price=settings.GAS_PRICE, debug=False, deploy_args: List[str] = None):
+        """
+        部署合约
+        """
+        if deploy_args is not None:
+            assert len(deploy_args) % 3 == 0, "deploy_args必须是3的倍数, [name, type, name对应的contract或者YA_DO_NOT_KNOW]"
+            encode_types = []
+            encode_values = []
+            for i in range(0, len(deploy_args), 3):
+                param_name, param_type, param_value = deploy_args[i:i + 3]
+                if param_type == "address" and param_value != "YA_DO_NOT_KNOW":
+                    encode_types.append(param_type)
+                    encode_values.append(settings.TRANS_INFO[param_value])
+                elif param_type == "address" and param_value == "YA_DO_NOT_KNOW":
+                    encode_types.append(param_type)
+                    encode_values.append(creator)
+                elif param_type.startswith("uint") and param_value == "YA_DO_NOT_KNOW":
+                    uint_size = int(param_type[4:])
+                    encode_types.append(param_type)
+                    encode_values.append(0)
+                elif param_type == "bool" and param_value == "YA_DO_NOT_KNOW":
+                    encode_types.append(param_type)
+                    encode_values.append(random.choice([True, False]))
+                elif param_type == "string" and param_value == "YA_DO_NOT_KNOW":
+                    encode_types.append(param_type)
+                    encode_values.append("".join(random.sample(string.ascii_letters + string.digits, 8)))
+                elif param_type.startswith("bytes") and param_value == "YA_DO_NOT_KNOW":
+                    if param_type == "bytes":
+                        bytes_size = random.randint(1, 32)
+                    else:
+                        bytes_size = int(param_type[5:])
+                    encode_types.append(param_type)
+                    encode_values.append(bytearray(random.getrandbits(8) for _ in range(bytes_size)))
+                elif param_type.startswith("int") and param_value == "YA_DO_NOT_KNOW":
+                    int_size = int(param_type[3:])
+                    encode_types.append(param_type)
+                    encode_values.append(0)
+            self.logger.info(f"encode_values: {encode_values}")
+            bin_code += encode_abi(encode_types, encode_values).hex()
         nonce = self.vm.state.get_nonce(decode_hex(creator))
         tx = self.vm.create_unsigned_transaction(
             nonce=nonce,

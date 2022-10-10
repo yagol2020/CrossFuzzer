@@ -10,6 +10,11 @@ docker rm $(docker ps -a -q)
 docker stop $(docker ps -a -q)
 ```
 
+## 删除悬空容器
+```shell
+docker rmi $(docker images -f "dangling=true" -q)
+```
+
 ## 进入容器
 
 ```shell

@@ -24,7 +24,7 @@ SOLVER_TIMEOUT = 100
 # List of attacker accounts
 ATTACKER_ACCOUNTS = ["0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"]
 # Default gas limit for sending transactions
-GAS_LIMIT = 4500000
+GAS_LIMIT = 450000000
 # Default gas price for sending transactions
 GAS_PRICE = 10
 # Default account balance
@@ -55,3 +55,7 @@ OUTPUT_TRANS_INFO = False
 SOLC_PATH_CROSS = ""
 # SURYA地址, 用于cross CFG
 SURYA_PATH_CROSS = ""
+# 记录跨合约事务的执行数量
+CROSS_TRANS_EXEC_COUNT = 0
+# 控制事务序列的生成策略
+TRANS_MODE = "origin"

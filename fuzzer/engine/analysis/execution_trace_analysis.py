@@ -54,6 +54,8 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
         code_coverage_percentage = 0
         if len(self.env.overall_pcs) > 0:
             code_coverage_percentage = (len(self.env.code_coverage) / len(self.env.overall_pcs)) * 100
+        # settings.TRANS_MODE = "cross" if settings.LAST_COVERAGE == code_coverage_percentage else "origin"
+        # settings.LAST_COVERAGE = code_coverage_percentage
 
         branch_coverage = 0
         for pc in self.env.visited_branches:
@@ -63,11 +65,11 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
             branch_coverage_percentage = (branch_coverage / (len(self.env.overall_jumpis) * 2)) * 100
 
         msg = 'Generation number {} \t Code coverage: {:.2f}% ({}/{}) \t Branch coverage: {:.2f}% ({}/{}) \t ' \
-              'Transactions: {} ({} unique)   \t Time: {}'.format(
+              'Transactions: {} ({} unique, {} from cross)   \t Time: {}'.format(
             g + 1, code_coverage_percentage, len(self.env.code_coverage), len(self.env.overall_pcs),
-            branch_coverage_percentage, branch_coverage, len(self.env.overall_jumpis) * 2, self.env.nr_of_transactions, len(self.env.unique_individuals),
+            branch_coverage_percentage, branch_coverage, len(self.env.overall_jumpis) * 2, self.env.nr_of_transactions, len(self.env.unique_individuals), settings.CROSS_TRANS_EXEC_COUNT,
             time.time() - self.env.execution_begin)
-        if random.randint(1, 50) < 25:  # 别全部输出了, 那么多也没用
+        if random.randint(1, 50) < 40:  # 别全部输出了, 那么多也没用
             self.logger.title(msg)
 
         # Save to results
@@ -309,6 +311,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                                     _address = to_normalized_address(_var_split[2])
                                     _size = int(_var_split[3], 16)
                                     indv.generator.remove_extcodesize_from_pool(_function_hash, _address, _size)
+                                    settings.TRANS_MODE = "cross"  # 启动交叉模式
 
                                 elif _str_var.startswith("returndatasize"):
                                     _function_hash = indv.chromosome[transaction_index]["arguments"][0]
@@ -730,7 +733,9 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
         self.env.results["address_under_test"] = self.env.population.indv_generator.contract
         self.env.results["seed"] = self.env.seed
 
-        #  Write results to file
+        self.env.results["cross_trans_count"] = settings.CROSS_TRANS_EXEC_COUNT
+
+        # Write results to file
         if self.env.args.results:
             results = {}
             if self.env.args.results.lower().endswith(".json"):

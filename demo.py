@@ -67,4 +67,29 @@ def test_nx():
             res.append(p)
     print(res)
 
-# test_nx()
+
+def check_constructor():
+    path_count = 0
+    constructor_count = 0
+    constructor_with_parma_count = 0
+    for root, dirs, files in os.walk("/home/yy/Dataset"):
+        for file in files:
+            if file.endswith(".sol"):
+                p = os.path.join(root, file)
+                try:
+                    slither = Slither(p, solc="/home/yy/anaconda3/envs/ConFuzzius/bin/solc")
+                    print(p)
+                    for contract in slither.contracts:
+                        path_count += 1
+                        constructor = contract.constructor
+                        if constructor:
+                            constructor_count += 1
+                            if len(constructor.parameters) > 0:
+                                constructor_with_parma_count += 1
+                    print(f"{path_count}个contract里, {constructor_count}个有constructor, {constructor_with_parma_count}个有参数")
+
+                except BaseException as be:
+                    continue
+
+
+check_constructor()

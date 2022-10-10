@@ -8,6 +8,7 @@ from copy import deepcopy, copy
 from eth_abi import encode_abi
 from eth_abi.exceptions import EncodingTypeError, ValueOutOfBounds, ParseError
 
+from fuzzer.utils import settings
 from fuzzer.utils.utils import initialize_logger
 
 
@@ -27,10 +28,11 @@ class Individual():
 
     def init(self, chromosome=None):
         if not chromosome:
-            if random.choice([True]):
+            if settings.TRANS_MODE == "origin":
                 self.chromosome = self.generator.generate_random_individual()
             else:
                 self.chromosome = self.generator.generate_individual_by_cross()
+                settings.CROSS_TRANS_EXEC_COUNT += 1
         else:
             self.chromosome = chromosome
         self.solution = self.decode()

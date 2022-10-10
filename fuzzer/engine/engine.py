@@ -174,6 +174,8 @@ class EvolutionaryFuzzingEngine(object):
                 # The next generation.
                 self.population.individuals = indvs
 
+                settings.TRANS_MODE = "origin"
+
                 # Run all analysis if needed.
                 for a in self.analysis:
                     if g % a.interval == 0:

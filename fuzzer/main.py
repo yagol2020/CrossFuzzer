@@ -9,7 +9,6 @@ from datetime import datetime
 
 import solcx
 import random
-import logging
 import argparse
 
 from eth_utils import encode_hex, decode_hex, to_canonical_address
@@ -164,7 +163,7 @@ class Fuzzer:
 
             if not contract_address:
                 if "constructor" not in self.interface:
-                    result = self.instrumented_evm.deploy_contract(self.instrumented_evm.accounts[0], self.deployement_bytecode)
+                    result = self.instrumented_evm.deploy_contract(self.instrumented_evm.accounts[0], self.deployement_bytecode, deploy_args=self.args.constructor_args)
                     if result.is_error:
                         logger.error("Problem while deploying contract %s using account %s. Error message: %s", self.contract_name, self.instrumented_evm.accounts[0], result._error)
                         sys.exit(-2)
@@ -184,7 +183,7 @@ class Fuzzer:
         if self.args.abi:
             contract_address = self.args.contract
 
-        self.instrumented_evm.create_snapshot()
+        self.instrumented_evm.create_snapshot()  # 部署所有合约后, 创建快照
 
         generator = Generator(interface=self.interface,
                               bytecode=self.deployement_bytecode,
@@ -236,8 +235,6 @@ class Fuzzer:
 
         self.instrumented_evm.reset()
         settings.TRANS_INFO["end_time"] = str(datetime.now())
-        if settings.OUTPUT_TRANS_INFO:
-            json.dump(settings.TRANS_INFO, open(settings.TRANS_INFO_JSON_PATH, "w"), indent=4)
 
 
 def main():
@@ -380,6 +377,7 @@ def launch_argument_parser():
     parser.add_argument("--trans-json-path", type=str, help="location to save trans info to json", dest="trans_json_path")
     parser.add_argument("--solc-path-cross", type=str, help="solc path, used by cross-slither", dest="solc_path_cross")
     parser.add_argument("--surya-path-cross", type=str, help="surya path, used by cross-cfg", dest="surya_path_cross")
+    parser.add_argument("--constructor-args", type=str, nargs="*", help="constructor args, like: [address, uint, .....]", dest="constructor_args")
 
     version = "ConFuzzius - Version 0.0.2 - "
     version += "\"By three methods we may learn wisdom:\n"
@@ -456,6 +454,10 @@ def launch_argument_parser():
         if args.depend_contracts is None:
             print('\033[42;31m!!!!!!if open cross contract mode, you need specify some contract names which depended by main contract!!!!!!\033[0m')
             print('\033[42;31m!!!!!!use --depend-contracts [A B C]!!!!!!\033[0m')
+            sys.exit(-1)
+        if args.constructor_args is None:
+            print('\033[42;31m!!!!!!if open cross contract mode, you need specify some constructor args!!!!!!\033[0m')
+            print('\033[42;31m!!!!!!use --constructor-args [address, uint, .....]!!!!!!\033[0m')
             sys.exit(-1)
     if args.trans_json_path is not None:
         settings.TRANS_INFO_JSON_PATH = args.trans_json_path

@@ -272,9 +272,11 @@ class Generator:
         """
         individual = []  # 一条事务序列, 里面是很多个函数调用
 
-        # 先执行依赖合约的generators的函数调用, 然后添加主合约的
-        for o_g in self.other_generators:
-            individual.extend(o_g.generate_random_individual())
+        # 先执行依赖合约的generators的函数调用, 然后添加主合约的, 注释掉, 跨合约分析根据指定的序列执行, 不随机嵌入其他合约的函数调用了
+
+        # for o_g in self.other_generators:
+        #     individual.extend(o_g.generate_random_individual())
+
         # 添加主合约的函数调用
         # 首先是构造器
         individual.extend(self.generate_constructor())
@@ -544,11 +546,16 @@ class Generator:
         if function in self.amounts_pool:
             amount = self.get_random_amount_from_pool(function)
         else:
-            MAX_AMOUNT = 10
-            amount = random.randint(0, MAX_AMOUNT)
+            # # 原版get_random_amount
+            amount = random.randint(0, 1)
             self.add_amount_to_pool(function, amount)
-            self.add_amount_to_pool(function, MAX_AMOUNT - amount)
-            self.add_amount_to_pool(function, 0)
+            self.add_amount_to_pool(function, 1 - amount)
+            # 为了覆盖ether级别金钱的情况, 上述情况最大为1wei
+            # if random.choice([True, True, False]):
+            #     for level, multiply in [("Ether", 10 ** 18), ("Wei", 1)]:
+            #         MAX_AMOUNT = 10 * multiply
+            #         amount = random.randint(0, MAX_AMOUNT)
+            #         self.add_amount_to_pool(function, amount)
         return amount
 
     #
