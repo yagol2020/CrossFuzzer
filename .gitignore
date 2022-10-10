@@ -146,3 +146,4 @@ experiments
 trans.json
 *.dot
 *.png
+*.csv
