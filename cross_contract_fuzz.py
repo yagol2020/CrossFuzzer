@@ -53,9 +53,25 @@ time.sleep(1)  # 休息几秒钟, 查看任务设置
 
 mainnet_info = {}
 
+cache_fuzz_able_contracts = []
+
 FUZZ_ABLE_CACHE_PATH = "cache/fuzzable_cache.csv"
 
-df = pd.read_csv(FUZZ_ABLE_CACHE_PATH)
+fuzz_cache_df = pd.read_csv(FUZZ_ABLE_CACHE_PATH)
+
+
+def read_in_fuzz_able_paths_from_cache_df():
+    global fuzz_cache_df
+    # remove duplicate
+    fuzz_cache_df = fuzz_cache_df.drop_duplicates()
+    # load path into cache_fuzz_able_contracts
+    global cache_fuzz_able_contracts
+    cache_fuzz_able_contracts = list(fuzz_cache_df["path"])
+    random.shuffle(cache_fuzz_able_contracts)
+    loguru.logger.success(f"成功从缓存中读取{len(cache_fuzz_able_contracts)}个可fuzz合约")
+
+
+read_in_fuzz_able_paths_from_cache_df()
 
 
 def cache_mainnet_info():
@@ -76,8 +92,8 @@ cache_mainnet_info()
 
 
 def cache_fuzz_able_contracts_to_df(_path, _main_contract_name, _solc_version, _trans_count):
-    global df
-    df = pd.concat([df, pd.DataFrame({
+    global fuzz_cache_df
+    fuzz_cache_df = pd.concat([fuzz_cache_df, pd.DataFrame({
         "path": [_path],
         "main_contract_name": [_main_contract_name],
         "solc_version": [_solc_version],
@@ -87,8 +103,8 @@ def cache_fuzz_able_contracts_to_df(_path, _main_contract_name, _solc_version, _
 
 
 def save_df():
-    global df
-    df.to_csv(FUZZ_ABLE_CACHE_PATH, index=False)
+    global fuzz_cache_df
+    fuzz_cache_df.to_csv(FUZZ_ABLE_CACHE_PATH, index=False)
 
 
 def load_ethereum_mainnet_info(_query_address) -> bool:
@@ -112,7 +128,6 @@ def load_dataset(dir_path: str, debug_mode: bool = False) -> Tuple[str, str, lis
         BE_TEST_CONTRACT_NAME = "ETH_FUND"
         _debug_depend_contracts, _debug_sl = analysis_depend_contract(file_path=BE_TEST_PATH, _contract_name=BE_TEST_CONTRACT_NAME)
         _debug_constructor_args = analysis_main_contract_constructor(file_path=BE_TEST_PATH, _contract_name=BE_TEST_CONTRACT_NAME, sl=_debug_sl)
-        cache_fuzz_able_contracts_to_df(_path=BE_TEST_PATH, _main_contract_name=BE_TEST_CONTRACT_NAME, _solc_version=SOLIDITY_VERSION, _trans_count=1)
         yield BE_TEST_PATH, BE_TEST_CONTRACT_NAME, _debug_depend_contracts, _debug_constructor_args
     else:
         paths = []  # 所有sol文件的路径, 用于打乱, 否则总是那么几个文件
@@ -122,11 +137,11 @@ def load_dataset(dir_path: str, debug_mode: bool = False) -> Tuple[str, str, lis
                     p = os.path.join(root, file)
                     paths.append(p)
         random.shuffle(paths)
+        global cache_fuzz_able_contracts
+        paths = cache_fuzz_able_contracts + paths
         for p in paths:
             if len(os.path.basename(p).replace(".sol", "").split("_")) != 2:
                 continue
-            # if p != "/home/yy/Dataset/mainnet/ff/ffb74c57def8667afadb4e05b64a928047e1c55c_x32323.sol":
-            #     continue
             address = "0x" + os.path.basename(p).replace(".sol", "").split("_")[0]
             contract_name = os.path.basename(p).replace(".sol", "").split("_")[1]
             assert len(address) == 42, "地址的长度为2 + 40"
@@ -298,18 +313,16 @@ class Result:
         self.remove_un_validate()
         loguru.logger.success("中间检查: 已经过滤不合法的结果, 剩余结果数量: " + str(len(self.res)))
         if inner_out and csv_path is not None and RESULT_APPEND_MODE is False:  # 如果启动了追加模式, 不要进入plot函数增加csv文件
-            self.plot(csv_path=csv_path, online_plot=False)
+            self.plot(csv_path=csv_path)
         return len(self.res)
 
-    def plot(self, csv_path=None, plot_path=None, online_plot=False):
+    def plot(self, csv_path=None):
         """
         plot_path为None时, 图片保存, 不在线输出
         """
         if len(self.res) == 0:
             loguru.logger.warning("没有结果可供绘图")
             return
-        import matplotlib.pyplot as plt
-        import seaborn as sns
         cov = []
 
         class Coverage:
@@ -408,5 +421,5 @@ if __name__ == "__main__":
             total_exec = r.inspect_exam(inner_out=True, csv_path=f"res/result_{timestamp_str}.csv")
     r.remove_un_validate()
     loguru.logger.info("正在输出结果......")
-    r.plot(csv_path=f"res/result_{timestamp_str}.csv", plot_path="res/result.png")
+    r.plot(csv_path=f"res/result_{timestamp_str}.csv")
     loguru.logger.success("完成......")

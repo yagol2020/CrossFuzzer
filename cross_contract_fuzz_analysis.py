@@ -9,9 +9,9 @@ import loguru
 RESULT_PATH = "res/result.csv"
 
 if __name__ == "__main__":
-    df = pd.read_csv(RESULT_PATH)
-    df = df.drop_duplicates(keep=False, subset=["path", "mode", "coverage", "find_bug_count", "depend_contract_num"])
-    df = df.groupby("path")
+    res_df = pd.read_csv(RESULT_PATH)
+    res_df = res_df.drop_duplicates(keep=False, subset=["path", "mode", "coverage", "find_bug_count", "depend_contract_num"])
+    res_df = res_df.groupby("path")
     loss_cov_counter, loss_bug_counter = 0, 0  # cross不如single
     draw_cov_counter, draw_bug_counter = 0, 0  # cross和single一样
     win_cov_counter, win_bug_counter = 0, 0  # cross比single好
@@ -22,7 +22,7 @@ if __name__ == "__main__":
     depend_draw_cov_counter, depend_draw_bug_counter = 0, 0  # cross和single一样, 即使有依赖
     depend_win_cov_counter, depend_win_bug_counter = 0, 0  # cross比single好, 即使有依赖
 
-    for path, g in df:  # 遍历group
+    for path, g in res_df:  # 遍历group
         total_counter += 1
         cross_model_slice = g[g["mode"] == "cross"]
         single_model_slice = g[g["mode"] == "single"]
