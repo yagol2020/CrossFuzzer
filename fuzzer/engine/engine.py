@@ -162,19 +162,22 @@ class EvolutionaryFuzzingEngine(object):
 
                 # Fill the new population.
                 for _ in range(size):
-                    # Select father and mother.
-                    parents = self.selection.select(self.population, fitness=self.fitness)
-                    # Crossover.
-                    children = self.crossover.cross(*parents)
-                    # Mutation.
-                    children = [self.mutation.mutate(child, self) for child in children]
-                    # Collect children.
-                    indvs.extend(children)
+                    if settings.TRANS_MODE == "cross":
+                        indv = self.population.new().init()
+                        indvs.extend(indv)
+                        settings.TRANS_MODE = "origin"
+                    else:
+                        # Select father and mother.
+                        parents = self.selection.select(self.population, fitness=self.fitness)
+                        # Crossover.
+                        children = self.crossover.cross(*parents)
+                        # Mutation.
+                        children = [self.mutation.mutate(child, self) for child in children]
+                        # Collect children.
+                        indvs.extend(children)
 
                 # The next generation.
                 self.population.individuals = indvs
-
-                settings.TRANS_MODE = "origin"
 
                 # Run all analysis if needed.
                 for a in self.analysis:

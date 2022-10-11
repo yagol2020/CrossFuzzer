@@ -139,7 +139,7 @@ class Population(object):
         '''
         Create a new emtpy population.
         '''
-        return self.__class__(indv_template=self.indv_template, size=self.size)
+        return self.__class__(indv_template=self.indv_template, size=self.size, indv_generator=self.indv_generator, other_generators=self.other_generators)
 
     def __getitem__(self, key):
         '''

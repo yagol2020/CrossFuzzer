@@ -69,8 +69,7 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
             g + 1, code_coverage_percentage, len(self.env.code_coverage), len(self.env.overall_pcs),
             branch_coverage_percentage, branch_coverage, len(self.env.overall_jumpis) * 2, self.env.nr_of_transactions, len(self.env.unique_individuals), settings.CROSS_TRANS_EXEC_COUNT,
             time.time() - self.env.execution_begin)
-        if random.randint(1, 50) < 40:  # 别全部输出了, 那么多也没用
-            self.logger.title(msg)
+        self.logger.title(msg)
 
         # Save to results
         if "generations" not in self.env.results:
@@ -312,7 +311,6 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
                                     _size = int(_var_split[3], 16)
                                     indv.generator.remove_extcodesize_from_pool(_function_hash, _address, _size)
                                     settings.TRANS_MODE = "cross"  # 启动交叉模式
-
                                 elif _str_var.startswith("returndatasize"):
                                     _function_hash = indv.chromosome[transaction_index]["arguments"][0]
                                     _var_split = str(var).split("_")
@@ -734,6 +732,9 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
         self.env.results["seed"] = self.env.seed
 
         self.env.results["cross_trans_count"] = settings.CROSS_TRANS_EXEC_COUNT
+
+        self.env.results["total_op"] = list(self.env.overall_pcs)
+        self.env.results["coverage_op"] = list(self.env.code_coverage)
 
         # Write results to file
         if self.env.args.results:
