@@ -171,7 +171,7 @@ class Fuzzer:
                         contract_address = encode_hex(result.msg.storage_address)
                         self.instrumented_evm.accounts.append(contract_address)
                         self.env.nr_of_transactions += 1
-                        logger.info("Contract deployed at %s", contract_address)
+                        logger.info("主Contract deployed at %s", contract_address)
                         # 将合约的部署情况存储起来
                         settings.TRANS_INFO[self.contract_name] = contract_address
 

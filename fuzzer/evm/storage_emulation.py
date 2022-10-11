@@ -40,6 +40,7 @@ from utils import settings
 global BLOCK_ID
 BLOCK_ID = "latest"
 
+
 # STORAGE EMULATOR
 class EmulatorAccountDB(BaseAccountDB):
     def __init__(self, db: BaseAtomicDB, state_root: Hash32 = BLANK_ROOT_HASH) -> None:
@@ -235,6 +236,7 @@ class EmulatorAccountDB(BaseAccountDB):
     def has_root(self, state_root: bytes) -> bool:
         return False
 
+
 def get_block_hash_for_testing(self, block_number):
     if block_number >= self.block_number:
         return b''
@@ -243,11 +245,13 @@ def get_block_hash_for_testing(self, block_number):
     else:
         return keccak(to_bytes(text="{0}".format(block_number)))
 
+
 def fuzz_timestamp_opcode_fn(computation) -> None:
     if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_timestamp") and computation.state.fuzzed_timestamp is not None:
         computation.stack_push_int(computation.state.fuzzed_timestamp)
     else:
         computation.stack_push_int(computation.state.timestamp)
+
 
 def fuzz_blocknumber_opcode_fn(computation) -> None:
     if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_blocknumber") and computation.state.fuzzed_blocknumber is not None:
@@ -255,11 +259,12 @@ def fuzz_blocknumber_opcode_fn(computation) -> None:
     else:
         computation.stack_push_int(computation.state.block_number)
 
+
 def fuzz_call_opcode_fn(computation, opcode_fn) -> None:
     gas = computation.stack_pop1_int()
     to = computation.stack_pop1_bytes()
     _to = to_normalized_address(to_hex(force_bytes_to_address(to)))
-    if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_call_return") and computation.state.fuzzed_call_return is not None\
+    if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_call_return") and computation.state.fuzzed_call_return is not None \
             and _to in computation.state.fuzzed_call_return and computation.state.fuzzed_call_return[_to] is not None:
         (
             value,
@@ -276,11 +281,12 @@ def fuzz_call_opcode_fn(computation, opcode_fn) -> None:
         opcode_fn(computation=computation)
     return _to
 
+
 def fuzz_staticcall_opcode_fn(computation, opcode_fn) -> None:
     gas = computation.stack_pop1_int()
     to = computation.stack_pop1_bytes()
     _to = to_normalized_address(to_hex(force_bytes_to_address(to)))
-    if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_call_return") and computation.state.fuzzed_call_return is not None\
+    if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_call_return") and computation.state.fuzzed_call_return is not None \
             and _to in computation.state.fuzzed_call_return and computation.state.fuzzed_call_return[_to] is not None:
         (
             memory_input_start_position,
@@ -296,24 +302,27 @@ def fuzz_staticcall_opcode_fn(computation, opcode_fn) -> None:
         opcode_fn(computation=computation)
     return _to
 
-def fuzz_extcodesize_opcode_fn(computation, opcode_fn) -> None: # EXTCODESIZE
+
+def fuzz_extcodesize_opcode_fn(computation, opcode_fn) -> None:  # EXTCODESIZE
     to = computation.stack_pop1_bytes()
     _to = to_normalized_address(to_hex(force_bytes_to_address(to)))
-    if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_extcodesize") and computation.state.fuzzed_extcodesize is not None\
+    if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_extcodesize") and computation.state.fuzzed_extcodesize is not None \
             and _to in computation.state.fuzzed_extcodesize and computation.state.fuzzed_extcodesize[_to] is not None:
-        computation.stack_push_int(computation.state.fuzzed_extcodesize[_to]) # 使用到了缓存?
+        computation.stack_push_int(computation.state.fuzzed_extcodesize[_to])  # 使用到了缓存?
     else:
         computation.stack_push_bytes(to)
         opcode_fn(computation=computation)
 
+
 def fuzz_returndatasize_opcode_fn(previous_call_address, computation, opcode_fn) -> None:
     opcode_fn(computation=computation)
     size = computation.stack_pop1_int()
-    if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_returndatasize") and computation.state.fuzzed_returndatasize is not None\
+    if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_returndatasize") and computation.state.fuzzed_returndatasize is not None \
             and previous_call_address in computation.state.fuzzed_returndatasize and computation.state.fuzzed_returndatasize[previous_call_address] is not None:
         computation.stack_push_int(computation.state.fuzzed_returndatasize[previous_call_address])
     else:
         computation.stack_push_int(size)
+
 
 def fuzz_balance_opcode_fn(computation, opcode_fn) -> None:
     if settings.ENVIRONMENTAL_INSTRUMENTATION and hasattr(computation.state, "fuzzed_balance") and computation.state.fuzzed_balance is not None:
@@ -322,9 +331,10 @@ def fuzz_balance_opcode_fn(computation, opcode_fn) -> None:
     else:
         opcode_fn(computation=computation)
 
+
 def fuzz_apply_computation(cls, state, message, transaction_context):
     cls = cls.__class__
-    with cls(state, message, transaction_context) as computation: # 这个computation属于主合约, 因此其他合约的事务不能执行
+    with cls(state, message, transaction_context) as computation:  # 这个computation属于主合约, 因此其他合约的事务不能执行
 
         # Early exit on pre-compiles
         from eth.vm.computation import NO_RESULT
@@ -353,21 +363,21 @@ def fuzz_apply_computation(cls, state, message, transaction_context):
             previous_gas = computation.get_gas_remaining()
 
             try:
-                if   opcode == 0x42:  # TIMESTAMP
+                if opcode == 0x42:  # TIMESTAMP
                     fuzz_timestamp_opcode_fn(computation=computation)
                 elif opcode == 0x43:  # NUMBER
                     fuzz_blocknumber_opcode_fn(computation=computation)
                 elif opcode == 0x31:  # BALANCE
                     fuzz_balance_opcode_fn(computation=computation, opcode_fn=opcode_fn)
-                elif opcode == 0xf1: # CALL
+                elif opcode == 0xf1:  # CALL
                     previous_call_address = fuzz_call_opcode_fn(computation=computation, opcode_fn=opcode_fn)
-                elif opcode == 0xfa: # STATICCALL
+                elif opcode == 0xfa:  # STATICCALL
                     previous_call_address = fuzz_staticcall_opcode_fn(computation=computation, opcode_fn=opcode_fn)
-                elif opcode == 0x3b: # EXTCODESIZE
+                elif opcode == 0x3b:  # EXTCODESIZE
                     fuzz_extcodesize_opcode_fn(computation=computation, opcode_fn=opcode_fn)
-                elif opcode == 0x3d: # RETURNDATASIZE
+                elif opcode == 0x3d:  # RETURNDATASIZE
                     fuzz_returndatasize_opcode_fn(previous_call_address, computation=computation, opcode_fn=opcode_fn)
-                elif opcode == 0x20: # SHA3
+                elif opcode == 0x20:  # SHA3
                     start_position, size = computation.stack_pop_ints(2)
                     memory = computation.memory_read_bytes(start_position, size)
                     computation.stack_push_int(size)
@@ -387,11 +397,12 @@ def fuzz_apply_computation(cls, state, message, transaction_context):
                         "stack": previous_stack,
                         "memory": memory,
                         "gas": computation.get_gas_remaining(),
-                        "gas_used_by_opcode" : previous_gas - computation.get_gas_remaining()
+                        "gas_used_by_opcode": previous_gas - computation.get_gas_remaining()
                     }
                 )
                 previous_stack = list(computation._stack.values)
     return computation
+
 
 # VMs
 

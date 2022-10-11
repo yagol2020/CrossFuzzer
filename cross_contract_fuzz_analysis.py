@@ -6,11 +6,10 @@ Cross Fuzz Contract 实验分析
 import pandas as pd
 import loguru
 
-RESULT_PATH = "res/result.csv"
-
+# RESULT_PATH = "res/op_summary_2022-10-10-15-40-26.csv"
+RESULT_PATH = "res/result_2022-10-10-15-40-26.csv"
 if __name__ == "__main__":
     res_df = pd.read_csv(RESULT_PATH)
-    res_df = res_df.drop_duplicates(keep=False, subset=["path", "mode", "coverage", "find_bug_count", "depend_contract_num"])
     res_df = res_df.groupby("path")
     loss_cov_counter, loss_bug_counter = 0, 0  # cross不如single
     draw_cov_counter, draw_bug_counter = 0, 0  # cross和single一样
