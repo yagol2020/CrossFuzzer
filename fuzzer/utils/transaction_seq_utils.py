@@ -104,10 +104,16 @@ def cross_cfg_test(sol_path):
                     for st_r in f.state_variables_read:
                         edge = pydot.Edge(f"{contract.name}.{st_r.name}", f_name, color="blue")
                         sub_graph.add_edge(edge)
+                    for modifier in f.modifiers:
+                        for st_w in modifier.state_variables_written:
+                            edge = pydot.Edge(f_name, f"{contract.name}.{st_w.name}", color="red")
+                            sub_graph.add_edge(edge)
+                        for st_r in modifier.state_variables_read:
+                            edge = pydot.Edge(f"{contract.name}.{st_r.name}", f_name, color="blue")
+                            sub_graph.add_edge(edge)
                 break
     # dot to png
     # dot.write_png(f"DOT_SV.png")
-    # print(f"dot file: /tmp/{uuid_str}.dot")
     g = nx.DiGraph()
     all_function_node = []
     for node in dot.get_node_list():

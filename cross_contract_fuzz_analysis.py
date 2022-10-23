@@ -3,13 +3,22 @@ Cross Fuzz Contract 实验分析
 
 @author: yagol
 """
+import os
+
 import pandas as pd
 import loguru
 
-# RESULT_PATH = "res/op_summary_2022-10-10-15-40-26.csv"
-RESULT_PATH = "res/result_2022-10-10-15-40-26.csv"
+RESULT_PATHS = []
+for root, dirs, files in os.walk("res"):
+    for file in files:
+        if file.endswith("csv"):
+            RESULT_PATHS.append(os.path.join(root, file))
+
 if __name__ == "__main__":
-    res_df = pd.read_csv(RESULT_PATH)
+    # concat each result
+    res_df = pd.concat([pd.read_csv(path) for path in RESULT_PATHS])
+    # remove duplicated
+    res_df = res_df.drop_duplicates()
     res_df = res_df.groupby("path")
     loss_cov_counter, loss_bug_counter = 0, 0  # cross不如single
     draw_cov_counter, draw_bug_counter = 0, 0  # cross和single一样

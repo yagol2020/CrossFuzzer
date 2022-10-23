@@ -22,8 +22,6 @@ import pandas as pd
 from slither.core.expressions import TypeConversion, Identifier, AssignmentOperation
 
 from slither.core.solidity_types import UserDefinedType
-from slither.core.variables.local_variable import LocalVariable
-from slither.core.variables.state_variable import StateVariable
 
 loguru.logger.add("log/DEBUG.log", encoding="utf-8", enqueue=True, backtrace=True, diagnose=True, level="DEBUG")
 loguru.logger.add("log/INFO.log", encoding="utf-8", enqueue=True, backtrace=True, diagnose=True, level="INFO")
@@ -40,10 +38,10 @@ TIME_TO_FUZZ = 10 * 60  # 单位: 秒
 
 THRESHOLD = 5  # 事务数量超过这个值, 才会被选中
 
-MAX_PROCESS_NUM = 16  # 最大多进程数量, 应该小于CPU核心数量
+MAX_PROCESS_NUM = 18  # 最大多进程数量, 应该小于CPU核心数量
 
 MAX_TRANS_LENGTH = 10  # fuzz过程中, 生成的最大事务序列长度
-REPEAT_NUM = 3  # 重复次数
+REPEAT_NUM = 5  # 重复次数
 SOLIDITY_VERSION = "v0.4.26"
 
 loguru.logger.info(f"任务数量: {MAX_FUZZ_FILE_SIZE}, Fuzz时间: {TIME_TO_FUZZ}秒")
@@ -54,7 +52,7 @@ mainnet_info = {}
 
 cache_fuzz_able_contracts = []
 
-FUZZ_ABLE_CACHE_PATH = "cache/fuzzable_cache.csv"
+FUZZ_ABLE_CACHE_PATH = "cache/fuzzable_cache.csv"  # 2049
 
 fuzz_cache_df = pd.read_csv(FUZZ_ABLE_CACHE_PATH)
 
@@ -126,7 +124,7 @@ def load_ethereum_mainnet_info(_query_address) -> bool:
 def load_dataset(dir_path: str, debug_mode: bool = False) -> Tuple[str, str, list, list]:
     if debug_mode:
         BE_TEST_PATH = "/home/yy/ConFuzzius-Cross/examples/T.sol"
-        BE_TEST_CONTRACT_NAME = "T"
+        BE_TEST_CONTRACT_NAME = "E"
         _debug_depend_contracts, _debug_sl = analysis_depend_contract(file_path=BE_TEST_PATH, _contract_name=BE_TEST_CONTRACT_NAME)
         _debug_constructor_args = analysis_main_contract_constructor(file_path=BE_TEST_PATH, _contract_name=BE_TEST_CONTRACT_NAME, sl=_debug_sl)
         yield BE_TEST_PATH, BE_TEST_CONTRACT_NAME, _debug_depend_contracts, _debug_constructor_args
@@ -140,16 +138,16 @@ def load_dataset(dir_path: str, debug_mode: bool = False) -> Tuple[str, str, lis
         random.shuffle(paths)
         # 暂时不启动paths, 用缓存的数据直接测试, 加快效率
         global cache_fuzz_able_contracts
-        paths = cache_fuzz_able_contracts
+        paths = paths
         for p in paths:
             if len(os.path.basename(p).replace(".sol", "").split("_")) != 2:
                 continue
-            # if p != "/home/yy/Dataset/mainnet/9a/9afa7e446e5393e50277af6baefa92b2bdf66850_GAME.sol":
+            # if p != "/home/yy/Dataset/mainnet/f2/f230b790e05390fc8295f4d3f60332c93bed42e2_TronToken.sol":
             #     continue
             address = "0x" + os.path.basename(p).replace(".sol", "").split("_")[0]
             contract_name = os.path.basename(p).replace(".sol", "").split("_")[1]
             assert len(address) == 42, "地址的长度为2 + 40"
-            if load_ethereum_mainnet_info(_query_address=address) and check_compile(p) and check_surya(p):
+            if check_in_cache(p) and load_ethereum_mainnet_info(_query_address=address) and check_compile(p) and check_surya(p):
                 _depend_contracts, _sl = analysis_depend_contract(file_path=p, _contract_name=contract_name)
                 _constructor_args = analysis_main_contract_constructor(file_path=p, _contract_name=contract_name, sl=_sl)
                 if _constructor_args is None:
@@ -165,6 +163,17 @@ def load_dataset(dir_path: str, debug_mode: bool = False) -> Tuple[str, str, lis
                     continue  # 跳过非跨合约的文件, 这类文件没有比较的意义了
                 if "mainnet" in p:
                     yield p, contract_name, _depend_contracts, _constructor_args
+
+
+def check_in_cache(_path):
+    global fuzz_cache_df
+    if fuzz_cache_df is None:
+        return True  # 如果没有缓存, 则直接返回True, 检测这个文件
+    if _path in fuzz_cache_df["path"].values:
+        loguru.logger.debug(f"该文件已经在缓存中, 跳过: {_path}")
+        return False  # 检测过了, 想要的是尚未检测过的, 所以返回False
+    else:
+        return True  # 没有检测过, 返回True, 检测这个文件
 
 
 def check_compile(file_path: str):
@@ -230,6 +239,13 @@ def analysis_depend_contract(file_path: str, _contract_name: str) -> Tuple:
     if _contract_name in res:
         loguru.logger.debug("主合约被分析到了依赖合约中, 需要移除")
         res.remove(_contract_name)
+    # 4. 判断依赖合约的bytecode, 移除为空的合约
+    compilation_unit = sl.compilation_units[0].crytic_compile_compilation_unit
+    for depend_c in res.copy():
+        if compilation_unit.bytecode_runtime(depend_c) == "" or compilation_unit.bytecode_runtime(depend_c) == "":
+            loguru.logger.debug(f"依赖合约 {depend_c}的bytecode为空, 已移除")
+            res.remove(depend_c)
+
     loguru.logger.info("依赖合约为: " + str(res) + ", 总共有: " + str(len(sl.contracts)) + "个合约, 需要部署的合约有: " + str(len(res)) + "个")
     return list(res), sl
 
@@ -303,7 +319,7 @@ class FuzzerResult:
     单一fuzz结果
     """
 
-    def __init__(self, _path, _contract_name, _coverage, _detect_result, _mode: int, _depend_contract_num: int, _total_op, _coverage_op):
+    def __init__(self, _path, _contract_name, _coverage, _detect_result, _mode: int, _depend_contract_num: int, _total_op, _coverage_op, _transaction_count, _cross_transaction_count):
         self.path = _path
         self.contract_name = _contract_name
         self.coverage = _coverage
@@ -312,6 +328,8 @@ class FuzzerResult:
         self.depend_contract_num = _depend_contract_num  # 依赖合约数量
         self.total_op = _total_op  # 总共的操作码
         self.coverage_op = _coverage_op  # 覆盖的操作码
+        self.transaction_count = _transaction_count  # 交易数量
+        self.cross_transaction_count = _cross_transaction_count  # 跨合约交易数量
 
 
 class Result:
@@ -321,6 +339,11 @@ class Result:
     def append(self, _path, _fuzzer_results: list):
         for _fuzzer_result in _fuzzer_results:
             if _fuzzer_result is None:  # 当fuzz处理失败时, 会出现None, 这里过滤这种情况
+                # update fuzz able cache
+                fuzz_cache_df.loc[fuzz_cache_df["path"] == _path, "enable"] = 0
+                fuzz_cache_df.loc[fuzz_cache_df["path"] == _path, "remark"] = "fuzz出现错误"
+                save_df()
+                loguru.logger.debug("fuzz结果未生成, 已更新和保存缓存......")
                 return
             temp_list = self.res.get(_path, [])
             temp_list.append(_fuzzer_result)
@@ -336,17 +359,17 @@ class Result:
                 loguru.logger.warning(f"存在不合法的结果, 该地址有{len(rs)}个结果, {p}")
                 self.res.pop(p)
 
-    def inspect_exam(self, csv_path, op_summary_csv_path) -> int:
+    def inspect_exam(self, csv_path) -> int:
         """
         实验过程中检测
         返回当前Result里已有多少合法结果
         """
         self.remove_un_validate()
         loguru.logger.success("中间检查: 已经过滤不合法的结果, 剩余结果数量: " + str(len(self.res)))
-        self.save_result(csv_path=csv_path, op_summary_csv_path=op_summary_csv_path)
+        self.save_result(csv_path=csv_path)
         return len(self.res)
 
-    def save_result(self, csv_path, op_summary_csv_path):
+    def save_result(self, csv_path):
         """
         保存fuzz结果
         """
@@ -357,51 +380,24 @@ class Result:
         cov = []
 
         class Coverage:
-            def __init__(self, _path, _mode, _coverage, _find_bug_count, _depend_contract_num):
+            def __init__(self, _path, _mode, _coverage, _find_bug_count, _depend_contract_num, _trans_count, _cross_trans_count):
                 self.path = _path
                 self.mode = "cross" if _mode == 1 else "single"
                 self.coverage = _coverage
                 self.find_bug_count = _find_bug_count
                 self.depend_contract_num = _depend_contract_num
+                self.trans_count = _trans_count
+                self.cross_trans_count = _cross_trans_count
                 self.record_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # 展开结果, 将结果平铺
         for p, rs in self.res.items():
             for ro in rs:
-                cov.append(Coverage(p, ro.mode, ro.coverage, len(ro.detect_result), ro.depend_contract_num))
+                cov.append(Coverage(p, ro.mode, ro.coverage, len(ro.detect_result), ro.depend_contract_num, ro.transaction_count, ro.cross_transaction_count))
         result_df = pd.DataFrame([c.__dict__ for c in cov])
         result_df.sort_values(by="coverage", inplace=True)
         if csv_path is not None:
             result_df.to_csv(csv_path, index=False)
-        # 第二部分, 统计两个模式整体的覆盖情况, 对操作码的覆盖情况进行或运算
-        cov = []
-        for p, rs in self.res.items():
-            cross_cov = {}
-            single_cov = {}
-            # 先初始化所有的操作码, 覆盖情况为0
-            temp_ro = rs[0]
-            for op in temp_ro.total_op:
-                cross_cov[op] = 0
-                single_cov[op] = 0
-            # 然后进行或运算
-            for ro in rs:
-                if ro.mode == 1:
-                    for op in ro.coverage_op:
-                        op = int(op, 16)
-                        cross_cov[op] = cross_cov[op] or 1
-                else:
-                    for op in ro.coverage_op:
-                        op = int(op, 16)
-                        single_cov[op] = single_cov[op] or 1
-            # 计算覆盖率
-            cross_cov = sum(cross_cov.values()) / len(cross_cov) * 100
-            single_cov = sum(single_cov.values()) / len(single_cov) * 100
-            cov.append(Coverage(p, 1, cross_cov, 0, 0))
-            cov.append(Coverage(p, 2, single_cov, 0, 0))
-        result_df = pd.DataFrame([c.__dict__ for c in cov])
-        result_df.sort_values(by="coverage", inplace=True)
-        if op_summary_csv_path is not None:
-            result_df.to_csv(op_summary_csv_path, index=False)
 
 
 def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: str, timeout: int, _depend_contracts: list, max_individual_length: int, _cross_contract: int, _constructor_args: list, _fuzz_index: int, _seed):
@@ -426,9 +422,12 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
         detect_result = res["errors"]
         total_op = res["total_op"]
         coverage_op = res["coverage_op"]
-        return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts), _total_op=total_op, _coverage_op=coverage_op)
+        transaction_count = res["transactions"]["total"]
+        cross_transaction_count = res.get("cross_trans_count", 0)
+        return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts), _total_op=total_op, _coverage_op=coverage_op, _transaction_count=transaction_count, _cross_transaction_count=cross_transaction_count)
     else:
         loguru.logger.warning(f"执行命令: {cmd}, 模式为 {_cross_contract} 时, 未能生成结果文件, 请检查")
+        # update fuzz able cache
         return None
 
 
@@ -477,8 +476,9 @@ if __name__ == "__main__":
             r_no_c_s_res = [r_no_c.get() for r_no_c in r_no_c_s]
             r.append(path, r_c_s_res)
             r.append(path, r_no_c_s_res)
-            total_exec = r.inspect_exam(csv_path=f"res/result_{timestamp_str}.csv", op_summary_csv_path=f"res/op_summary_{timestamp_str}.csv")
+            total_exec = r.inspect_exam(csv_path=f"res/result_{timestamp_str}.csv")
     r.remove_un_validate()
     loguru.logger.info("正在输出结果......")
-    r.save_result(csv_path=f"res/result_{timestamp_str}.csv", op_summary_csv_path=f"res/op_summary_{timestamp_str}.csv")
+    r.save_result(csv_path=f"res/result_{timestamp_str}.csv")
     loguru.logger.success("完成......")
+    loguru.logger.success(f"输出的结果文件为: res/result_{timestamp_str}.csv")
