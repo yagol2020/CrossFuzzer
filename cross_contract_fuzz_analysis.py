@@ -7,12 +7,18 @@ import os
 
 import pandas as pd
 import loguru
+import numpy as np
 
 RESULT_PATHS = []
 for root, dirs, files in os.walk("res"):
     for file in files:
-        if file.endswith("csv"):
+        if file.endswith("csv"):  # 定位文件夹下, 所有的csv结尾的文件
             RESULT_PATHS.append(os.path.join(root, file))
+
+
+def plot_bar():
+    pass
+
 
 if __name__ == "__main__":
     # concat each result
@@ -30,6 +36,11 @@ if __name__ == "__main__":
     depend_draw_cov_counter, depend_draw_bug_counter = 0, 0  # cross和single一样, 即使有依赖
     depend_win_cov_counter, depend_win_bug_counter = 0, 0  # cross比single好, 即使有依赖
 
+    # 统计cross和single两个的平均覆盖率
+    cross_cov, single_cov = 0, 0
+    # 统计覆盖率的提升幅度
+    cov_improve = []
+
     for path, g in res_df:  # 遍历group
         total_counter += 1
         cross_model_slice = g[g["mode"] == "cross"]
@@ -39,6 +50,11 @@ if __name__ == "__main__":
         bug_cross = cross_model_slice["find_bug_count"].mean()
         bug_single = single_model_slice["find_bug_count"].mean()
         depend_contract_num_cross = cross_model_slice["depend_contract_num"].mean()
+
+        cross_cov += cov_cross
+        single_cov += cov_single
+
+        cov_improve.append(cov_cross - cov_single)
 
         if cov_cross > cov_single:
             loguru.logger.success(f"{path} 覆盖率 cross > single | {cov_cross} > {cov_single}")
@@ -71,3 +87,4 @@ if __name__ == "__main__":
     loguru.logger.info(f"漏洞数: win: {win_bug_counter}({win_bug_counter / total_counter * 100}%), draw: {draw_bug_counter}({draw_bug_counter / total_counter * 100}%), loss: {loss_bug_counter}({loss_bug_counter / total_counter * 100}%)")
 
     loguru.logger.info(f"在覆盖率win的 {win_cov_counter} 里, 有 {depend_win_cov_counter} 个是存在依赖合约的;\t在覆盖率loss的 {loss_cov_counter} 里, 有 {depend_loss_cov_counter} 个是存在依赖合约的")
+    loguru.logger.info(f"cross和single的平均覆盖率: cross: {cross_cov / total_counter}, single: {single_cov / total_counter}")
