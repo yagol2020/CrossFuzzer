@@ -7,7 +7,6 @@ import os
 
 import pandas as pd
 import loguru
-import numpy as np
 
 RESULT_PATHS = []
 for root, dirs, files in os.walk("res"):
@@ -18,6 +17,15 @@ for root, dirs, files in os.walk("res"):
 
 def plot_bar():
     pass
+
+
+class RQ1:
+    """
+    RQ1: 与其他SOTA相比, cross_fuzzer的代码覆盖率和漏洞数量如何?
+    """
+
+    def __init__(self, _res_df: pd.DataFrame):
+        self.res_df = _res_df
 
 
 if __name__ == "__main__":
