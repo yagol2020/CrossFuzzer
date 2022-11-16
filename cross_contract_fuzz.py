@@ -7,7 +7,6 @@ import multiprocessing
 import os
 import random
 import shutil
-import subprocess
 import sys
 import time
 from datetime import datetime
@@ -17,7 +16,7 @@ import docker
 import json
 from slither import Slither
 from slither.core.declarations import Contract
-from typing import List, Dict, Tuple
+from typing import Tuple
 import pandas as pd
 from slither.core.expressions import TypeConversion, Identifier, AssignmentOperation
 
@@ -28,11 +27,56 @@ logger = get_logger()
 logger.info(f"任务数量: {MAX_FUZZ_FILE_SIZE}, Fuzz时间: {TIME_TO_FUZZ}秒")
 logger.info(f"预计最低执行时间: {MAX_FUZZ_FILE_SIZE * 2 * TIME_TO_FUZZ * REPEAT_NUM / MAX_PROCESS_NUM / 60}分钟, "
             f"即{MAX_FUZZ_FILE_SIZE * 2 * TIME_TO_FUZZ * REPEAT_NUM / MAX_PROCESS_NUM / 60 / 60}小时")
-time.sleep(1)  # 休息几秒钟, 查看任务设置
+logger.info("开启的工具为: " + ",".join(TOOLS))
+time.sleep(5)  # 休息几秒钟, 查看任务设置
 fuzz_cache_df = pd.read_csv(FUZZ_ABLE_CACHE_PATH)
+label_df = pd.read_csv(SB_CURATED_LABEL_FILE)
 
 
-def analysis_depend_contract(file_path: str, _contract_name: str) -> Tuple:
+def demo_test():
+    """
+    用于测试
+    """
+    logger.info("开始测试")
+    p = "/home/yy/ConFuzzius-Cross/examples/T.sol"
+    c_name = "E"
+    _depend_contracts, _sl = analysis_depend_contract(file_path=p, _contract_name=c_name)
+    _constructor_args = analysis_main_contract_constructor(file_path=p, _contract_name=c_name, sl=_sl)
+    yield p, c_name, _depend_contracts, _constructor_args
+
+
+def load_dataset():
+    rows = []
+    if MODE == Mode.LARGE_SCALE:
+        for index, row in fuzz_cache_df.iterrows():
+            if row["fuzzable"] is True and row["enable"] is not False:
+                rows.append((index, row))
+    elif MODE == Mode.SB_CURATED:
+        for index, row in label_df.iterrows():
+            rows.append((index, row))
+    else:
+        raise Exception
+    random.shuffle(rows)
+    for index, row in rows:
+        p = row["path"]
+        c_name = row["contract_name"]
+        _depend_contracts, _sl = analysis_depend_contract(file_path=p, _contract_name=c_name)
+        if len(_depend_contracts) <= 0:
+            fuzz_cache_df.loc[index, "enable"] = False
+            fuzz_cache_df.loc[index, "remark"] = "无依赖合约"
+            fuzz_cache_df.to_csv(FUZZ_ABLE_CACHE_PATH, index=False)
+            continue
+        _constructor_args = analysis_main_contract_constructor(file_path=p, _contract_name=c_name, sl=_sl)
+        if _constructor_args is None:
+            fuzz_cache_df.loc[index, "enable"] = False
+            fuzz_cache_df.loc[index, "remark"] = "分析构造函数失败"
+            fuzz_cache_df.to_csv(FUZZ_ABLE_CACHE_PATH, index=False)
+            continue
+        yield p, c_name, _depend_contracts, _constructor_args
+
+
+@logger.catch()
+def analysis_depend_contract(file_path: str, _contract_name: str) -> Tuple[List, Slither]:
     """
     不是文件内所有的合约, 都需要部署一次
     1. 主合约继承的合约, 如果没有被[参数]/[状态变量]所调用或依赖, 那么不用部署
@@ -48,7 +92,9 @@ def analysis_depend_contract(file_path: str, _contract_name: str) -> Tuple:
     while not to_be_deep_analysis.empty():
         c = to_be_deep_analysis.get()
         contract = sl.get_contract_from_name(c)
-        assert len(contract) == 1, "理论上, 根据合约名字, 只能找到一个合约"
+        if len(contract) != 1:
+            logger.warning("理论上, 根据合约名字, 只能找到一个合约")
+            return [], sl
         contract = contract[0]
         # 1. 分析被写入的状态变量
         for v in contract.all_state_variables_written:
@@ -148,124 +194,60 @@ def extract_param_contract_map(exps: TypeConversion):
         return None, None
 
 
-class FuzzerResult:
-    """
-    单一fuzz结果
-    """
-
-    def __init__(self, _path, _contract_name, _coverage, _detect_result, _mode: int, _depend_contract_num: int, _total_op, _coverage_op, _transaction_count, _cross_transaction_count):
-        self.path = _path
-        self.contract_name = _contract_name
-        self.coverage = _coverage
-        self.detect_result = _detect_result
-        self.mode = _mode  # 跨合约是否开启? 1开启, 2未开启
-        self.depend_contract_num = _depend_contract_num  # 依赖合约数量
-        self.total_op = _total_op  # 总共的操作码
-        self.coverage_op = _coverage_op  # 覆盖的操作码
-        self.transaction_count = _transaction_count  # 交易数量
-        self.cross_transaction_count = _cross_transaction_count  # 跨合约交易数量
-
-
-class Result:
-    def __init__(self):
-        self.res = {}  # type:Dict[str, List[FuzzerResult]]
-
-    def append(self, _path, _fuzzer_results: list):
-        for _fuzzer_result in _fuzzer_results:
-            if _fuzzer_result is None:  # 当fuzz处理失败时, 会出现None, 这里过滤这种情况
-                # update fuzz able cache
-                fuzz_cache_df.loc[fuzz_cache_df["path"] == _path, "enable"] = 0
-                fuzz_cache_df.loc[fuzz_cache_df["path"] == _path, "remark"] = "fuzz出现错误"
-                fuzz_cache_df.to_csv(FUZZ_ABLE_CACHE_PATH, index=False)
-                logger.debug("fuzz结果未生成, 已更新和保存缓存......")
-                return
-            temp_list = self.res.get(_path, [])
-            temp_list.append(_fuzzer_result)
-            self.res[_path] = temp_list
-            assert len(self.res[_path]) <= 2 * REPEAT_NUM
-
-    def remove_un_validate(self):
-        """
-        验证是否存在2个mode的结果, 如果不存在, 警告并删除
-        """
-        for p, rs in self.res.copy().items():
-            if len(rs) != 2 * REPEAT_NUM:
-                logger.warning(f"存在不合法的结果, 该地址有{len(rs)}个结果, {p}")
-                self.res.pop(p)
-
-    def inspect_exam(self, csv_path) -> int:
-        """
-        实验过程中检测
-        返回当前Result里已有多少合法结果
-        """
-        self.remove_un_validate()
-        logger.success("中间检查: 已经过滤不合法的结果, 剩余结果数量: " + str(len(self.res)))
-        self.save_result(csv_path=csv_path)
-        return len(self.res)
-
-    def save_result(self, csv_path):
-        """
-        保存fuzz结果
-        """
-        self.remove_un_validate()
-        if len(self.res) == 0:
-            logger.warning("没有结果可供绘图")
-            return
-        cov = []
-
-        class Coverage:
-            def __init__(self, _path, _mode, _coverage, _find_bug_count, _depend_contract_num, _trans_count, _cross_trans_count):
-                self.path = _path
-                self.mode = "cross" if _mode == 1 else "single"
-                self.coverage = _coverage
-                self.find_bug_count = _find_bug_count
-                self.depend_contract_num = _depend_contract_num
-                self.trans_count = _trans_count
-                self.cross_trans_count = _cross_trans_count
-                self.record_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # 展开结果, 将结果平铺
-        for p, rs in self.res.items():
-            for ro in rs:
-                cov.append(Coverage(p, ro.mode, ro.coverage, len(ro.detect_result), ro.depend_contract_num, ro.transaction_count, ro.cross_transaction_count))
-        result_df = pd.DataFrame([c.__dict__ for c in cov])
-        result_df.sort_values(by="coverage", inplace=True)
-        if csv_path is not None:
-            result_df.to_csv(csv_path, index=False)
-
-
-def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: str, timeout: int, _depend_contracts: list, max_individual_length: int, _cross_contract: int, _constructor_args: list, _fuzz_index: int, _seed):
+def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: str, timeout: int, _depend_contracts: list, max_individual_length: int, _cross_contract: int, _constructor_args: list, _fuzz_index: int, _seed, tool: str):
     import uuid
     uuid = uuid.uuid4()
     res_path = f"/tmp/ConFuzzius-{uuid}.json"
     file_path = f"/tmp/ConFuzzius-{uuid}.sol"
     shutil.copyfile(_file_path, file_path)  # 移动到/tmp里, 这个是和docker的共享目录
     logger.info(f"UUID为{uuid}")
-    if _cross_contract == 1:
+    if _cross_contract == 1 and tool == "cross":
         depend_contracts_str = " ".join(_depend_contracts)
         constructor_str = " ".join(_constructor_args)
         cmd = f"{PYTHON} {FUZZER} -s {file_path} -c {_main_contract} --seed {_seed} --solc {solc_version} --evm {evm_version} -t {timeout} --cross-contract {_cross_contract} --depend-contracts {depend_contracts_str} --constructor-args {constructor_str} --constraint-solving 0 --result {res_path} --max-individual-length {max_individual_length} --solc-path-cross /usr/local/bin/solc --surya-path-cross /usr/local/bin/surya"
-        run_in_docker(cmd, _images="cross", _contract_name=_main_contract, _fuzz_index=_fuzz_index)
-    else:
+        run_in_docker(cmd, _images="cross", _fuzz_index=_fuzz_index)
+        logger.debug(cmd)
+    elif tool == "confuzzius":
         cmd = f"{PYTHON} {FUZZER} -s {file_path} -c {_main_contract} --seed {_seed} --solc {solc_version} --evm {evm_version} -t {timeout} --constraint-solving 0 --result {res_path} --max-individual-length {max_individual_length}"
-        run_in_docker(cmd, _images="origin", _contract_name=_main_contract, _fuzz_index=_fuzz_index)
+        run_in_docker(cmd, _images="origin", _fuzz_index=_fuzz_index)
+    elif tool == "sfuzz":
+        # 1. 由于多进程, 因此根据uuid创建文件夹, 将合约文件放入其中
+        os.mkdir(f"/tmp/{uuid}")
+        shutil.copyfile(file_path, f"/tmp/{uuid}/{_main_contract}.sol")
+        # 3. 修改file_path
+        file_path = f"/tmp/{uuid}/{_main_contract}.sol"
+        # 4. 根据我们的写法, sfuzz的输出为E.sol.json
+        res_path = f"/tmp/{uuid}/{_main_contract}.sol.json"
+        # 5. 生成cmd
+        cmd = f"python3 auto_runner.py {file_path} {timeout}"
+        # 6. 运行docker
+        run_in_docker(cmd, _images="sfuzz:5.0", _fuzz_index=_fuzz_index)
+        # 7. 为了避免合约名字重复, 把文件名改回来
+        os.rename(file_path, f"/tmp/ConFuzzius-{uuid}.sol")
+    else:
+        logger.error(f"不支持的工具: {tool}, 系统退出")
+        sys.exit(-1)
     time.sleep(1)
     if os.path.exists(res_path):
-        res = json.load(open(res_path))[_main_contract]
-        code_coverage = res["code_coverage"]["percentage"]
-        detect_result = res["errors"]
-        total_op = res["total_op"]
-        coverage_op = res["coverage_op"]
-        transaction_count = res["transactions"]["total"]
-        cross_transaction_count = res.get("cross_trans_count", 0)
-        return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts), _total_op=total_op, _coverage_op=coverage_op, _transaction_count=transaction_count, _cross_transaction_count=cross_transaction_count)
+        if tool == "sfuzz":
+            res = json.load(open(res_path))
+            code_coverage = res["coverage"]
+            detect_result, total_op, coverage_op, transaction_count, cross_transaction_count = {}, [], [], 0, 0
+        else:
+            res = json.load(open(res_path))[_main_contract]
+            code_coverage = res["code_coverage"]["percentage"]
+            detect_result = res["errors"]
+            total_op = res["total_op"]
+            coverage_op = res["coverage_op"]
+            transaction_count = res["transactions"]["total"]
+            cross_transaction_count = res.get("cross_trans_count", 0)
+        return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts), _total_op=total_op, _coverage_op=coverage_op, _transaction_count=transaction_count, _cross_transaction_count=cross_transaction_count, _tool_name=tool)
     else:
         logger.warning(f"执行命令: {cmd}, 模式为 {_cross_contract} 时, 未能生成结果文件, 请检查")
-        # update fuzz able cache
         return None
 
 
-def run_in_docker(cmd: str, _images: str, _contract_name: str, _fuzz_index: int):
+def run_in_docker(cmd: str, _images: str, _fuzz_index: int):
     """
     基于docker运行cmd
     """
@@ -284,10 +266,6 @@ def run_in_docker(cmd: str, _images: str, _contract_name: str, _fuzz_index: int)
         sys.exit(-1)
 
 
-def load_dataset():
-    pass
-
-
 if __name__ == "__main__":
     timestamp_str = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     r = Result()
@@ -295,25 +273,24 @@ if __name__ == "__main__":
     with multiprocessing.Pool(processes=MAX_PROCESS_NUM) as pool:
         for path, main_contract, depend_contracts, constructor_args in load_dataset():
             logger.info(f"正在处理{path}")
-            repeat_r_cross = []
-            repeat_r_single = []
+            repeat_r = []
             for i in range(REPEAT_NUM):
                 seed = random.random()
-                r_c = pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, depend_contracts, MAX_TRANS_LENGTH, 1, constructor_args, i, seed))
-                r_no_c = pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, [], MAX_TRANS_LENGTH, 2, constructor_args, i, seed))
-                repeat_r_cross.append(r_c)
-                repeat_r_single.append(r_no_c)
-            mp_result.append((path, main_contract, depend_contracts, repeat_r_cross, repeat_r_single))
-            if len(mp_result) > MAX_FUZZ_FILE_SIZE:
+                for tool_name in TOOLS:
+                    if tool_name == "cross":
+                        repeat_r.append(pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, depend_contracts, MAX_TRANS_LENGTH, 1, constructor_args, i, seed, "cross")))
+                    elif tool_name == "origin":
+                        repeat_r.append(pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, [], MAX_TRANS_LENGTH, 2, constructor_args, i, seed, "confuzzius")))
+                    elif tool_name == "sfuzz":
+                        repeat_r.append(pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, [], MAX_TRANS_LENGTH, 3, constructor_args, i, seed, "sfuzz")))
+            mp_result.append((path, main_contract, depend_contracts, repeat_r))
+            logger.info(f"已在多进程中加入任务: {len(mp_result)} 个, 总共: {MAX_FUZZ_FILE_SIZE} 个")
+            if len(mp_result) >= MAX_FUZZ_FILE_SIZE:
+                logger.info("已达到最大任务数, 等待多进程结果......")
                 break
-            else:
-                logger.info(f"已在多进程中加入任务: {len(mp_result)} 个, 总共: {MAX_FUZZ_FILE_SIZE} 个")
-        for path, main_contract, depend_contracts, r_c_s, r_no_c_s in mp_result:
-            assert len(r_c_s) == len(r_no_c_s)
-            r_c_s_res = [r_c.get() for r_c in r_c_s]
-            r_no_c_s_res = [r_no_c.get() for r_no_c in r_no_c_s]
+        for path, main_contract, depend_contracts, r_c in mp_result:
+            r_c_s_res = [r_c_s.get() for r_c_s in r_c]
             r.append(path, r_c_s_res)
-            r.append(path, r_no_c_s_res)
             total_exec = r.inspect_exam(csv_path=f"res/result_{timestamp_str}.csv")
     r.remove_un_validate()
     logger.info("正在输出结果......")

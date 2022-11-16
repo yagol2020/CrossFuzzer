@@ -1,5 +1,4 @@
 import os
-from datetime import datetime
 from cross_contract_fuzz_setting import *
 import subprocess
 from slither import Slither
@@ -18,8 +17,8 @@ def check_compile(file_path: str):
 
 
 def check_surya(file_path: str):
-    HOST_SURYA_PATH = "/usr/local/bin/surya"
-    test_surya_cmd = f"{HOST_SURYA_PATH} graph {file_path}"
+    surya_path = "/usr/local/bin/surya"
+    test_surya_cmd = f"{surya_path} graph {file_path}"
     try:
         output = subprocess.check_output(test_surya_cmd, shell=True)
         if output == b'':
@@ -36,6 +35,7 @@ class FileCache:
         self.contract_name = _contract_name
         self.loc = _loc
         self.fuzzable = _fuzzable
+        self.enable = _fuzzable
         self.create_time = datetime.now().strftime("%Y/%m/%d/%H:%M:%S")
 
 
@@ -64,4 +64,4 @@ if __name__ == '__main__':
                 if count == 50:
                     df.to_csv("file_cache.csv", index=False)
                     count = 0
-                    logger.info(f"Save file cache: {path}")
+                    logger.info(f"Save df into cache")

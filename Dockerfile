@@ -8,13 +8,15 @@ RUN apt-get install -y sudo wget tar unzip pandoc python-setuptools python-pip p
 # Install solidity
 RUN wget https://github.com/ethereum/solidity/releases/download/v0.4.26/solc-static-linux && chmod +x solc-static-linux && mv solc-static-linux /usr/local/bin/solc
 # Install z3
-#RUN wget https://github.com/Z3Prover/z3/archive/Z3-4.8.5.zip && unzip Z3-4.8.5.zip && rm Z3-4.8.5.zip && cd z3-Z3-4.8.5 && python scripts/mk_make.py --python && cd build && make && sudo make install && cd ../.. && rm -r z3-Z3-4.8.5
+RUN wget https://github.com/Z3Prover/z3/archive/Z3-4.8.5.zip && unzip Z3-4.8.5.zip && rm Z3-4.8.5.zip && cd z3-Z3-4.8.5 && python scripts/mk_make.py --python && cd build && make && sudo make install && cd ../.. && rm -r z3-Z3-4.8.5
 # Install surya to analysis cross contract
-RUN npm install -g surya
+RUN npm --registry https://registry.npm.taobao.org install -g surya
 # some python packages always need to be installed
-RUN pip install --upgrade pip
+RUN pip3 install --upgrade pip
 ENV LANG C.UTF-8
 WORKDIR /root
 COPY examples examples
 COPY fuzzer fuzzer
-RUN cd fuzzer && pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN cd fuzzer && pip3 install --upgrade pip && pip3 install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+# for solcx
+RUN mkdir /root/.solcx & cp /usr/local/bin/solc /root/.solcx/solc-v0.4.26
