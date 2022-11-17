@@ -10,6 +10,7 @@ import logging
 import eth_utils
 import subprocess
 
+from solcx.install import _convert_and_validate_version
 from web3 import Web3
 from .settings import LOGGING_LEVEL
 
@@ -83,6 +84,7 @@ def compile(solc_version, evm_version, source_code_file):
     try:
         if not str(solc_version).startswith("v"):
             solc_version = "v" + str(solc_version.truncate())
+        solc_version = _convert_and_validate_version(solc_version)
         if not solc_version in solcx.get_installed_solc_versions():
             solcx.install_solc(solc_version)
         solcx.set_solc_version(solc_version, True)

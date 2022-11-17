@@ -81,7 +81,8 @@ class ExecutionTraceAnalyzer(OnTheFlyAnalysis):
             "total_transactions": self.env.nr_of_transactions,
             "unique_transactions": len(self.env.unique_individuals),
             "code_coverage": code_coverage_percentage,
-            "branch_coverage": branch_coverage_percentage
+            "branch_coverage": branch_coverage_percentage,
+            "cross_transactions": settings.CROSS_TRANS_EXEC_COUNT
         })
 
         if len(self.env.code_coverage) == self.env.previous_code_coverage_length:  # 如果这一次覆盖率没有增加, 启动符号执行

@@ -25,8 +25,8 @@ from slither.core.solidity_types import UserDefinedType
 logger = get_logger()
 
 logger.info(f"任务数量: {MAX_FUZZ_FILE_SIZE}, Fuzz时间: {TIME_TO_FUZZ}秒")
-logger.info(f"预计最低执行时间: {MAX_FUZZ_FILE_SIZE * 2 * TIME_TO_FUZZ * REPEAT_NUM / MAX_PROCESS_NUM / 60}分钟, "
-            f"即{MAX_FUZZ_FILE_SIZE * 2 * TIME_TO_FUZZ * REPEAT_NUM / MAX_PROCESS_NUM / 60 / 60}小时")
+logger.info(f"预计最低执行时间: {MAX_FUZZ_FILE_SIZE * len(TOOLS) * TIME_TO_FUZZ * REPEAT_NUM / MAX_PROCESS_NUM / 60}分钟, "
+            f"即{MAX_FUZZ_FILE_SIZE * len(TOOLS) * TIME_TO_FUZZ * REPEAT_NUM / MAX_PROCESS_NUM / 60 / 60}小时")
 logger.info("开启的工具为: " + ",".join(TOOLS))
 time.sleep(5)  # 休息几秒钟, 查看任务设置
 fuzz_cache_df = pd.read_csv(FUZZ_ABLE_CACHE_PATH)
@@ -59,6 +59,8 @@ def load_dataset():
     random.shuffle(rows)
     for index, row in rows:
         p = row["path"]
+        # if p != "/home/yy/Dataset/mainnet/0a/0abdace70d3790235af448c88547603b945604ea_District0xNetworkToken.sol":
+        #     continue
         c_name = row["contract_name"]
         _depend_contracts, _sl = analysis_depend_contract(file_path=p, _contract_name=c_name)
         if len(_depend_contracts) <= 0:
@@ -231,7 +233,7 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
     if os.path.exists(res_path):
         if tool == "sfuzz":
             res = json.load(open(res_path))
-            code_coverage = res["coverage"]
+            code_coverage = float(res["coverage"])
             detect_result, total_op, coverage_op, transaction_count, cross_transaction_count = {}, [], [], 0, 0
         else:
             res = json.load(open(res_path))[_main_contract]
@@ -277,9 +279,10 @@ if __name__ == "__main__":
             for i in range(REPEAT_NUM):
                 seed = random.random()
                 for tool_name in TOOLS:
+                    time.sleep(random.randint(1, 5))
                     if tool_name == "cross":
                         repeat_r.append(pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, depend_contracts, MAX_TRANS_LENGTH, 1, constructor_args, i, seed, "cross")))
-                    elif tool_name == "origin":
+                    elif tool_name == "confuzzius":
                         repeat_r.append(pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, [], MAX_TRANS_LENGTH, 2, constructor_args, i, seed, "confuzzius")))
                     elif tool_name == "sfuzz":
                         repeat_r.append(pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, [], MAX_TRANS_LENGTH, 3, constructor_args, i, seed, "sfuzz")))
@@ -292,7 +295,6 @@ if __name__ == "__main__":
             r_c_s_res = [r_c_s.get() for r_c_s in r_c]
             r.append(path, r_c_s_res)
             total_exec = r.inspect_exam(csv_path=f"res/result_{timestamp_str}.csv")
-    r.remove_un_validate()
     logger.info("正在输出结果......")
     r.save_result(csv_path=f"res/result_{timestamp_str}.csv")
     logger.success("完成......")

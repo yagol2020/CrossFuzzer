@@ -19,16 +19,19 @@ SOLIDITY_VERSION = "v0.4.26"
 FUZZER = "fuzzer/main.py"  # docker内的main.py
 PYTHON = "python3"  # docker内的python3
 FUZZ_ABLE_CACHE_PATH = "cache/file_cache.csv"
-MAX_FUZZ_FILE_SIZE = 300  # 一轮实验里, fuzz多少个文件?
-TIME_TO_FUZZ = 10 * 60  # 单位: 秒
+MAX_FUZZ_FILE_SIZE = 1  # 一轮实验里, fuzz多少个文件?
+TIME_TO_FUZZ = 10 * 1  # 单位: 秒
 LARGE_SCALE_DATASETS = "/home/yy/Dataset"  # 大规模数据集的路径
 SB_CURATED_LABEL_FILE = "./cache/sb_curate.csv"  # 存在标签的数据集
-MAX_PROCESS_NUM = 14  # 最大多进程数量, 应该小于CPU核心数量
+MAX_PROCESS_NUM = 15  # 最大多进程数量, 应该小于CPU核心数量
 
 MAX_TRANS_LENGTH = 10  # fuzz过程中, 生成的最大事务序列长度
 REPEAT_NUM = 3  # 重复次数
 
 TOOLS = ["cross", "confuzzius", "sfuzz"]
+
+
+# TOOLS = ["sfuzz"]
 
 
 ########
@@ -101,21 +104,12 @@ class Result:
             if len(self.res[_path]) > len(TOOLS) * REPEAT_NUM:
                 get_logger().warning(f"重复次数过多, 请检查{_path}的fuzz结果")
 
-    def remove_un_validate(self):
-        """
-        验证是否存在2个mode的结果, 如果不存在, 警告并删除
-        """
-        for p, rs in self.res.copy().items():
-            if len(rs) != len(TOOLS) * REPEAT_NUM:
-                get_logger().warning(f"存在不合法的结果, 该地址有{len(rs)}个结果, {p}")
-                self.res.pop(p)
-
+    @loguru.logger.catch()
     def inspect_exam(self, csv_path) -> int:
         """
         实验过程中检测
         返回当前Result里已有多少合法结果
         """
-        self.remove_un_validate()
         get_logger().success("中间检查: 已经过滤不合法的结果, 剩余结果数量: " + str(len(self.res)))
         self.save_result(csv_path=csv_path)
         return len(self.res)
@@ -124,7 +118,6 @@ class Result:
         """
         保存fuzz结果
         """
-        self.remove_un_validate()
         if len(self.res) == 0:
             get_logger().warning("没有结果可供绘图")
             return
