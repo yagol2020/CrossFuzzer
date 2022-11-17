@@ -2,6 +2,8 @@
 Cross Contract Fuzz
 @author : yagol
 """
+import binascii
+
 from cross_contract_fuzz_setting import *
 import multiprocessing
 import os
@@ -12,14 +14,15 @@ import time
 from datetime import datetime
 from queue import Queue
 import docker
-
+import pyevmasm
+import crytic_compile
 import json
 from slither import Slither
 from slither.core.declarations import Contract
 from typing import Tuple
 import pandas as pd
 from slither.core.expressions import TypeConversion, Identifier, AssignmentOperation
-
+import re
 from slither.core.solidity_types import UserDefinedType
 
 logger = get_logger()
@@ -201,6 +204,7 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
     uuid = uuid.uuid4()
     res_path = f"/tmp/ConFuzzius-{uuid}.json"
     file_path = f"/tmp/ConFuzzius-{uuid}.sol"
+    origin_uuid_path = file_path
     shutil.copyfile(_file_path, file_path)  # 移动到/tmp里, 这个是和docker的共享目录
     logger.info(f"UUID为{uuid}")
     if _cross_contract == 1 and tool == "cross":
@@ -219,11 +223,11 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
         # 3. 修改file_path
         file_path = f"/tmp/{uuid}/{_main_contract}.sol"
         # 4. 根据我们的写法, sfuzz的输出为E.sol.json
-        res_path = f"/tmp/{uuid}/{_main_contract}.sol.json"
+        res_path = f"/tmp/{uuid}/{_main_contract}.cov.json"
         # 5. 生成cmd
         cmd = f"python3 auto_runner.py {file_path} {timeout}"
         # 6. 运行docker
-        run_in_docker(cmd, _images="sfuzz:5.0", _fuzz_index=_fuzz_index)
+        run_in_docker(cmd, _images="sfuzz:7.0", _fuzz_index=_fuzz_index)
         # 7. 为了避免合约名字重复, 把文件名改回来
         os.rename(file_path, f"/tmp/ConFuzzius-{uuid}.sol")
     else:
@@ -232,8 +236,15 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
     time.sleep(1)
     if os.path.exists(res_path):
         if tool == "sfuzz":
-            res = json.load(open(res_path))
-            code_coverage = float(res["coverage"])
+            cov_bbs = json.load(open(res_path))
+            bin_bytecode = crytic_compile.CryticCompile(origin_uuid_path).compilation_units[origin_uuid_path].bytecodes_runtime[_main_contract]
+            if bin_bytecode.endswith("0029"):
+                bin_bytecode = re.sub(r"a165627a7a72305820\S{64}0029$", "", bin_bytecode)
+            if bin_bytecode.endswith("0033"):
+                bin_bytecode = re.sub(r"5056fe.*?0033$", "5056", bin_bytecode)
+            bin_bytecode = binascii.unhexlify(bin_bytecode)
+            total_bbs = list(pyevmasm.disassemble_all(bin_bytecode))
+            code_coverage = len(cov_bbs) / len(total_bbs) * 100
             detect_result, total_op, coverage_op, transaction_count, cross_transaction_count = {}, [], [], 0, 0
         else:
             res = json.load(open(res_path))[_main_contract]
