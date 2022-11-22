@@ -19,14 +19,14 @@ SOLIDITY_VERSION = "v0.4.26"
 FUZZER = "fuzzer/main.py"  # docker内的main.py
 PYTHON = "python3"  # docker内的python3
 FUZZ_ABLE_CACHE_PATH = "cache/file_cache.csv"
-MAX_FUZZ_FILE_SIZE = 1  # 一轮实验里, fuzz多少个文件?
-TIME_TO_FUZZ = 10 * 1  # 单位: 秒
+MAX_FUZZ_FILE_SIZE = 10  # 一轮实验里, fuzz多少个文件?
+TIME_TO_FUZZ = 10 * 60  # 单位: 秒
 LARGE_SCALE_DATASETS = "/home/yy/Dataset"  # 大规模数据集的路径
 SB_CURATED_LABEL_FILE = "./cache/sb_curate.csv"  # 存在标签的数据集
 MAX_PROCESS_NUM = 15  # 最大多进程数量, 应该小于CPU核心数量
 
 MAX_TRANS_LENGTH = 10  # fuzz过程中, 生成的最大事务序列长度
-REPEAT_NUM = 3  # 重复次数
+REPEAT_NUM = 2  # 重复次数
 
 TOOLS = ["cross", "confuzzius", "sfuzz"]
 
@@ -70,7 +70,7 @@ class FuzzerResult:
     单一fuzz结果
     """
 
-    def __init__(self, _path, _contract_name, _coverage, _detect_result, _mode: int, _depend_contract_num: int, _total_op, _coverage_op, _transaction_count, _cross_transaction_count, _tool_name):
+    def __init__(self, _path, _contract_name, _coverage, _detect_result, _mode: int, _depend_contract_num: int, _total_op, _coverage_op, _transaction_count, _cross_transaction_count, _tool_name, _origin_info: dict):
         self.tool_name = _tool_name
         self.path = _path
         self.contract_name = _contract_name
@@ -82,6 +82,7 @@ class FuzzerResult:
         self.coverage_op = _coverage_op  # 覆盖的操作码
         self.transaction_count = _transaction_count  # 交易数量
         self.cross_transaction_count = _cross_transaction_count  # 跨合约交易数量
+        self.origin_info = _origin_info  # 原始信息
 
 
 class Result:
@@ -124,7 +125,7 @@ class Result:
         cov = []
 
         class Coverage:
-            def __init__(self, _path, _mode, _coverage, _find_bug_count, _depend_contract_num, _trans_count, _cross_trans_count):
+            def __init__(self, _path, _mode, _coverage, _find_bug_count, _depend_contract_num, _trans_count, _cross_trans_count, _origin_info: dict):
                 self.path = _path
                 self.mode = _mode
                 self.coverage = _coverage
@@ -132,13 +133,48 @@ class Result:
                 self.depend_contract_num = _depend_contract_num
                 self.trans_count = _trans_count
                 self.cross_trans_count = _cross_trans_count
+                self.origin_info = _origin_info
                 self.record_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # 展开结果, 将结果平铺
         for p, rs in self.res.items():
             for ro in rs:
-                cov.append(Coverage(p, ro.tool_name, ro.coverage, len(ro.detect_result), ro.depend_contract_num, ro.transaction_count, ro.cross_transaction_count))
+                cov.append(Coverage(p, ro.tool_name, ro.coverage, len(ro.detect_result), ro.depend_contract_num, ro.transaction_count, ro.cross_transaction_count, ro.origin_info))
         result_df = pd.DataFrame([c.__dict__ for c in cov])
         result_df.sort_values(by="coverage", inplace=True)
         if csv_path is not None:
             result_df.to_csv(csv_path, index=False)
+
+
+SFUZZ_MAPPING = ["GASLESS_SEND",  # 0
+                 "EXCEPTION_DISORDER",  # 1
+                 "TIME_DEPENDENCY",  # 2
+                 "NUMBER_DEPENDENCY",  # 3
+                 "DELEGATE_CALL",  # 4
+                 "REENTRANCY",  # 5
+                 "FREEZING",  # 6
+                 "UNDERFLOW",  # 7
+                 "OVERFLOW"  # 8
+                 ]
+CONFUZZIUS_MAPPING = {"Arbitrary Memory Access",
+                      "Assertion Failure",
+                      "Integer Overflow",  # 整型溢出
+                      "Reentrancy",
+                      "Transaction Order Dependency",
+                      "Block Dependency",
+                      "Unchecked Return Value",
+                      "Unsafe Delegatecall",
+                      "Leaking Ether",
+                      "Locking Ether",
+                      "Unprotected Selfdestruct"}
+BUG_TOGETHER = {"TIME_DEPENDENCY",  # sfuzz
+                "NUMBER_DEPENDENCY",
+                "DELEGATE_CALL",
+                "REENTRANCY",
+                "FREEZING",
+                "OVERFLOW",
+                "Block Dependency",  # confuzzius
+                "Unsafe Delegatecall",
+                "Reentrancy",
+                "Locking Ether",
+                "Integer Overflow"}

@@ -59,3 +59,7 @@ SURYA_PATH_CROSS = ""
 CROSS_TRANS_EXEC_COUNT = 0
 # 控制事务序列的生成策略
 TRANS_MODE = "origin"
+# # 记录原始策略中, 提升覆盖率的事务数量
+# UP_IN_ORIGIN = 0
+# # 记录跨合约策略中, 提升覆盖率的事务数量
+# UP_IN_CROSS = 0

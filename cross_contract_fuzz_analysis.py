@@ -24,8 +24,9 @@ class RQ1:
     def __init__(self, _res_df: pd.DataFrame):
         self.base_dir = "RQ1"
         self.res_df = _res_df
-        # self.plot_coverage()
         self.locate_one_coverage()
+        self.plot_coverage()
+        self.plot_bug()
 
     def plot_coverage(self):
         """
@@ -34,11 +35,10 @@ class RQ1:
         """
 
         class EachFile:
-            def __init__(self, _mode, _loc_level, _coverage, _bug_num):
+            def __init__(self, _mode, _loc_level, _coverage):
                 self.mode = _mode
                 self.loc_level = _loc_level
                 self.coverage = _coverage
-                self.bug_num = _bug_num
 
         import matplotlib as mpl
         import matplotlib.pyplot as plt
@@ -58,16 +58,15 @@ class RQ1:
                 loc_level = ">=1k"
             for mode, mode_df in path_df.groupby("mode"):
                 coverage_mean = mode_df["coverage"].mean()
-                bug_num_mean = mode_df["find_bug_count"].mean()
-                datas.append(EachFile(mode, loc_level, coverage_mean, bug_num_mean))
+                datas.append(EachFile(mode, loc_level, coverage_mean))
         datas = pd.DataFrame([vars(data) for data in datas])
         # 将结果保存到csv文件中
         datas.to_csv(os.path.join(self.base_dir, "RQ1_coverage.csv"), index=False)
         # 柱状图-覆盖率
         mean_df = datas.groupby(["mode", "loc_level"]).mean().reset_index()
         mean_df.to_csv(os.path.join(self.base_dir, "RQ1_coverage_mean.csv"), index=False)
-        sns.barplot(x="loc_level", y="coverage", hue="mode", data=mean_df, errorbar=None,
-                    hue_order=["cross", "confuzzius"],
+        sns.barplot(data=mean_df, x="loc_level", y="coverage", hue="mode", errorbar=None,
+                    hue_order=["cross", "confuzzius", "sfuzz"],
                     order=["<200", "<500", "<1k", ">=1k"]
                     )
         plt.xlabel("合约规模")
@@ -75,18 +74,7 @@ class RQ1:
         plt.legend(title="模式")
         plt.tight_layout()
         plt.savefig(os.path.join(self.base_dir, "RQ1_coverage_bar.png"), dpi=500)
-        # 柱装图-漏洞数量
-        mean_df = datas.groupby(["mode", "loc_level"]).mean().reset_index()
-        mean_df.to_csv(os.path.join(self.base_dir, "RQ1_bug_num_mean.csv"), index=False)
-        sns.barplot(x="loc_level", y="bug_num", hue="mode", data=mean_df, errorbar=None,
-                    hue_order=["cross", "confuzzius"],
-                    order=["<200", "<500", "<1k", ">=1k"]
-                    )
-        plt.xlabel("合约规模")
-        plt.ylabel("漏洞数量")
-        plt.legend(title="模式")
-        plt.tight_layout()
-        plt.savefig(os.path.join(self.base_dir, "RQ1_bug_num_bar.png"), dpi=500)
+        plt.show()
 
     def locate_one_coverage(self):
         class TimeCoverage:
@@ -154,6 +142,74 @@ class RQ1:
         plt.legend(title="模式")
         plt.tight_layout()
         plt.savefig(os.path.join(self.base_dir, "RQ1_coverage_time.png"), dpi=500)
+        plt.show()
+        # 绘制饼装图
+        sns.set()
+        plt.pie([65641, 10582], labels=["Origin", "Cross"], autopct='%1.1f%%')
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.base_dir, "RQ1_coverage_pie.png"), dpi=500)
+        plt.show()
+
+    def plot_bug(self):
+        class Bug:
+            def __init__(self, _mode, _loc_level, _bug_nums):
+                self.mode = _mode
+                self.loc_level = _loc_level
+                self.bug_nums = _bug_nums
+
+        import matplotlib as mpl
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        mpl.rcParams[u'font.sans-serif'] = ['simhei']
+        mpl.rcParams['axes.unicode_minus'] = False
+        datas = []
+        for g, g_df in self.res_df.groupby(["path", "mode"]):
+            path, mode = g
+            # 计算loc
+            loc = len(open(path).readlines())
+            # 计算loc_level
+            if loc < 200:
+                loc_level = "<200"
+            elif loc <= 500:
+                loc_level = "<500"
+            elif loc <= 1000:
+                loc_level = "<1k"
+            else:
+                loc_level = ">=1k"
+            for index, row in g_df.iterrows():
+                origin_info = eval(row["origin_info"])
+                if mode == "sfuzz":
+                    bug_nums = 0
+                    for key, value in origin_info.items():
+                        if key.startswith("BUG") and value != "0":
+                            bug_name = SFUZZ_MAPPING[int(key[3:])]
+                            if bug_name in BUG_TOGETHER:
+                                bug_nums += 1
+                    datas.append(Bug(mode, loc_level, bug_nums))
+
+                elif mode == "cross" or mode == "confuzzius":
+                    errors = origin_info["errors"]
+                    bug_nums = 0
+                    for _, es in errors.items():
+                        for e in es:
+                            if e["type"] in BUG_TOGETHER:
+                                bug_nums += 1
+                    datas.append(Bug(mode, loc_level, bug_nums))
+                else:
+                    raise Exception("mode error")
+        bug_df = pd.DataFrame([data.__dict__ for data in datas])
+        bug_df.to_csv(os.path.join(self.base_dir, "RQ1_bug.csv"), index=False)
+        # 画图
+        mean_bug_df = bug_df.groupby(["mode", "loc_level"]).mean().reset_index()
+        mean_bug_df.to_csv(os.path.join(self.base_dir, "RQ1_bug_mean.csv"), index=False)
+        sns.barplot(data=mean_bug_df, x="loc_level", y="bug_nums", hue="mode", errorbar=None, hue_order=["cross", "confuzzius", "sfuzz"],
+                    order=["<200", "<500", "<1k", ">=1k"])
+        plt.xlabel("合约规模")
+        plt.ylabel("检测漏洞数量")
+        plt.legend(title="模式")
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.base_dir, "RQ1_bug_bar.png"), dpi=500)
+        plt.show()
 
 
 class RQ2:
@@ -161,7 +217,22 @@ class RQ2:
         self.res_df = _res_df
 
 
+def prepossessing(_res_df: pd.DataFrame):
+    """
+    数据预处理
+    """
+    logger.info("原始数据大小: {}".format(_res_df.shape))
+    # 1. 去除重复的数据
+    _res_df = _res_df.drop_duplicates()
+    logger.info("去除重复数据后: {}".format(_res_df.shape))
+    # 2. 去除mode数量小于TOOLS数量的数据
+    _res_df = _res_df.groupby("path").filter(lambda x: len(x["mode"].unique()) == len(TOOLS))
+    logger.info("去除mode数量小于TOOLS数量的数据后: {}".format(_res_df.shape))
+    return _res_df
+
+
 if __name__ == "__main__":
-    res_df = pd.concat([pd.read_csv(path) for path in RESULT_PATHS]).drop_duplicates()
+    res_df = pd.concat([pd.read_csv(path) for path in RESULT_PATHS])
+    res_df = prepossessing(res_df)
     rq1 = RQ1(res_df)
     rq2 = RQ2(res_df)

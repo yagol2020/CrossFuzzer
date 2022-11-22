@@ -199,6 +199,7 @@ def extract_param_contract_map(exps: TypeConversion):
         return None, None
 
 
+@logger.catch()
 def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: str, timeout: int, _depend_contracts: list, max_individual_length: int, _cross_contract: int, _constructor_args: list, _fuzz_index: int, _seed, tool: str):
     import uuid
     uuid = uuid.uuid4()
@@ -227,7 +228,7 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
         # 5. 生成cmd
         cmd = f"python3 auto_runner.py {file_path} {timeout}"
         # 6. 运行docker
-        run_in_docker(cmd, _images="sfuzz:7.0", _fuzz_index=_fuzz_index)
+        run_in_docker(cmd, _images="sfuzz:8.0", _fuzz_index=_fuzz_index)
         # 7. 为了避免合约名字重复, 把文件名改回来
         os.rename(file_path, f"/tmp/ConFuzzius-{uuid}.sol")
     else:
@@ -235,6 +236,7 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
         sys.exit(-1)
     time.sleep(1)
     if os.path.exists(res_path):
+        detect_result, total_op, coverage_op, transaction_count, cross_transaction_count, origin_info = {}, [], [], 0, 0, {}
         if tool == "sfuzz":
             cov_bbs = json.load(open(res_path))
             bin_bytecode = crytic_compile.CryticCompile(origin_uuid_path).compilation_units[origin_uuid_path].bytecodes_runtime[_main_contract]
@@ -245,7 +247,11 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
             bin_bytecode = binascii.unhexlify(bin_bytecode)
             total_bbs = list(pyevmasm.disassemble_all(bin_bytecode))
             code_coverage = len(cov_bbs) / len(total_bbs) * 100
-            detect_result, total_op, coverage_op, transaction_count, cross_transaction_count = {}, [], [], 0, 0
+            origin_info_path = res_path.replace(".cov.json", ".sol.json")
+            if os.path.exists(origin_info_path):
+                origin_info = json.load(open(origin_info_path))
+            else:
+                logger.error(f"找不到sfuzz的origin_info文件: {origin_info_path}")
         else:
             res = json.load(open(res_path))[_main_contract]
             code_coverage = res["code_coverage"]["percentage"]
@@ -254,7 +260,8 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
             coverage_op = res["coverage_op"]
             transaction_count = res["transactions"]["total"]
             cross_transaction_count = res.get("cross_trans_count", 0)
-        return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts), _total_op=total_op, _coverage_op=coverage_op, _transaction_count=transaction_count, _cross_transaction_count=cross_transaction_count, _tool_name=tool)
+            origin_info = res
+        return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts), _total_op=total_op, _coverage_op=coverage_op, _transaction_count=transaction_count, _cross_transaction_count=cross_transaction_count, _tool_name=tool, _origin_info=origin_info)
     else:
         logger.warning(f"执行命令: {cmd}, 模式为 {_cross_contract} 时, 未能生成结果文件, 请检查")
         return None

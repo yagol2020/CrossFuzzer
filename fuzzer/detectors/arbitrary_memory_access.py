@@ -4,6 +4,7 @@
 from z3 import is_expr
 from z3.z3util import get_vars
 
+
 class ArbitraryMemoryAccessDetector():
     def __init__(self):
         self.init()
@@ -25,6 +26,6 @@ class ArbitraryMemoryAccessDetector():
                             if len(str(tainted_index_var).split("_")) == 3:
                                 transaction_index = int(str(tainted_index_var).split("_")[1])
                                 argument_index = int(str(tainted_index_var).split("_")[2]) + 1
-                                if type(individual.chromosome[transaction_index]["arguments"][argument_index]) is int and individual.chromosome[transaction_index]["arguments"][argument_index] > 2**128-1:
+                                if type(individual.chromosome[transaction_index]["arguments"][argument_index]) is int and individual.chromosome[transaction_index]["arguments"][argument_index] > 2 ** 128 - 1:
                                     return current_instruction["pc"], transaction_index
         return None, None
