@@ -66,7 +66,7 @@ class RQ1:
         mean_df = datas.groupby(["mode", "loc_level"]).mean().reset_index()
         mean_df.to_csv(os.path.join(self.base_dir, "RQ1_coverage_mean.csv"), index=False)
         sns.barplot(data=mean_df, x="loc_level", y="coverage", hue="mode", errorbar=None,
-                    hue_order=["cross", "confuzzius", "sfuzz"],
+                    hue_order=["cross", "confuzzius", "xfuzz", "sfuzz"],
                     order=["<200", "<500", "<1k", ">=1k"]
                     )
         plt.xlabel("合约规模")
