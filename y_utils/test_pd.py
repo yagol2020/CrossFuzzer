@@ -3,7 +3,7 @@ pandas学习
 @author: yagol
 """
 import random
-
+import os
 import pandas as pd
 
 

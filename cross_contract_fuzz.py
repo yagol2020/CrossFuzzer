@@ -2,9 +2,9 @@
 Cross Contract Fuzz
 @author : yagol
 """
-import binascii
-
 from cross_contract_fuzz_setting import *
+import y_utils.solc_compiler
+
 import multiprocessing
 import os
 import random
@@ -14,15 +14,12 @@ import time
 from datetime import datetime
 from queue import Queue
 import docker
-import pyevmasm
-import crytic_compile
 import json
 from slither import Slither
 from slither.core.declarations import Contract
 from typing import Tuple
 import pandas as pd
 from slither.core.expressions import TypeConversion, Identifier, AssignmentOperation
-import re
 from slither.core.solidity_types import UserDefinedType
 
 logger = get_logger()
@@ -36,18 +33,6 @@ fuzz_cache_df = pd.read_csv(FUZZ_ABLE_CACHE_PATH)
 label_df = pd.read_csv(SB_CURATED_LABEL_FILE)
 
 
-def demo_test():
-    """
-    用于测试
-    """
-    logger.info("开始测试")
-    p = "/home/yy/ConFuzzius-Cross/examples/T.sol"
-    c_name = "E"
-    _depend_contracts, _sl = analysis_depend_contract(file_path=p, _contract_name=c_name)
-    _constructor_args = analysis_main_contract_constructor(file_path=p, _contract_name=c_name, sl=_sl)
-    yield p, c_name, _depend_contracts, _constructor_args
-
-
 def load_dataset():
     rows = []
     if MODE == Mode.LARGE_SCALE:
@@ -57,6 +42,12 @@ def load_dataset():
     elif MODE == Mode.SB_CURATED:
         for index, row in label_df.iterrows():
             rows.append((index, row))
+    elif MODE == Mode.TEST:
+        p = "/home/yy/ConFuzzius-Cross/y_utils/test/Example.sol"
+        c_name = "EtherBank"
+        _depend_contracts, _sl = analysis_depend_contract(file_path=p, _contract_name=c_name)
+        _constructor_args = analysis_main_contract_constructor(file_path=p, _contract_name=c_name, sl=_sl)
+        yield p, c_name, _depend_contracts, _constructor_args
     else:
         raise Exception
     random.shuffle(rows)
@@ -228,31 +219,38 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
         # 5. 生成cmd
         cmd = f"python3 auto_runner.py {file_path} {timeout}"
         # 6. 运行docker
-        run_in_docker(cmd, _images="sfuzz:8.0", _fuzz_index=_fuzz_index)
+        run_in_docker(cmd, _images="sfuzz:2.0", _fuzz_index=_fuzz_index)
         # 7. 为了避免合约名字重复, 把文件名改回来
         os.rename(file_path, f"/tmp/ConFuzzius-{uuid}.sol")
+    elif tool == "xfuzz":
+        os.mkdir(f"/tmp/{uuid}")
+        shutil.copyfile(file_path, f"/tmp/{uuid}/test.sol")
+        res_path = f"/tmp/{uuid}/coverage_pc.json"
+        cmd = f"python3 ./model_prediction/main.py /tmp/{uuid}/test.sol {timeout} {_main_contract}"
+        run_in_docker(cmd, _images="xfuzz:9.0", _fuzz_index=_fuzz_index)
     else:
         logger.error(f"不支持的工具: {tool}, 系统退出")
         sys.exit(-1)
     time.sleep(1)
+    code_coverage, detect_result, total_op, coverage_op, transaction_count, cross_transaction_count, origin_info = 0, {}, [], [], 0, 0, {}
     if os.path.exists(res_path):
-        detect_result, total_op, coverage_op, transaction_count, cross_transaction_count, origin_info = {}, [], [], 0, 0, {}
-        if tool == "sfuzz":
+        if tool == "sfuzz" or tool == "xfuzz":
             cov_bbs = json.load(open(res_path))
-            bin_bytecode = crytic_compile.CryticCompile(origin_uuid_path).compilation_units[origin_uuid_path].bytecodes_runtime[_main_contract]
-            if bin_bytecode.endswith("0029"):
-                bin_bytecode = re.sub(r"a165627a7a72305820\S{64}0029$", "", bin_bytecode)
-            if bin_bytecode.endswith("0033"):
-                bin_bytecode = re.sub(r"5056fe.*?0033$", "5056", bin_bytecode)
-            bin_bytecode = binascii.unhexlify(bin_bytecode)
-            total_bbs = list(pyevmasm.disassemble_all(bin_bytecode))
-            code_coverage = len(cov_bbs) / len(total_bbs) * 100
-            origin_info_path = res_path.replace(".cov.json", ".sol.json")
+            compiler_output = y_utils.solc_compiler.compile("0.4.26", "byzantium", origin_uuid_path)
+            bin_bytecode = compiler_output["contracts"][origin_uuid_path][_main_contract]["evm"]["deployedBytecode"]["object"]
+            total_bbs = set(y_utils.solc_compiler.get_pcs(bin_bytecode))
+            xfuzz_cov_bb = set([int(bb) for bb in cov_bbs.keys()]) & total_bbs
+            code_coverage = len(xfuzz_cov_bb) / len(total_bbs) * 100
+            if tool == "sfuzz":
+                origin_info_path = res_path.replace(".cov.json", ".sol.json")
+            else:
+                origin_info_path = res_path.replace("coverage_pc.json", "stats.json")
             if os.path.exists(origin_info_path):
-                origin_info = json.load(open(origin_info_path))
+                origin_info = {"origin_infos_ya": json.load(open(origin_info_path)),
+                               "cov_infos_ya": cov_bbs}
             else:
                 logger.error(f"找不到sfuzz的origin_info文件: {origin_info_path}")
-        else:
+        elif tool == "cross" or tool == "confuzzius":  # cross 和 confuzzius
             res = json.load(open(res_path))[_main_contract]
             code_coverage = res["code_coverage"]["percentage"]
             detect_result = res["errors"]
@@ -261,10 +259,13 @@ def run_fuzzer(_file_path: str, _main_contract, solc_version: str, evm_version: 
             transaction_count = res["transactions"]["total"]
             cross_transaction_count = res.get("cross_trans_count", 0)
             origin_info = res
-        return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts), _total_op=total_op, _coverage_op=coverage_op, _transaction_count=transaction_count, _cross_transaction_count=cross_transaction_count, _tool_name=tool, _origin_info=origin_info)
+        else:
+            logger.error(f"不支持的工具: {tool}, 系统退出")
+            sys.exit(-1)
+        return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts), _total_op=total_op, _coverage_op=coverage_op, _transaction_count=transaction_count, _cross_transaction_count=cross_transaction_count, _tool_name=tool, _origin_info=origin_info, _flag=True)
     else:
-        logger.warning(f"执行命令: {cmd}, 模式为 {_cross_contract} 时, 未能生成结果文件, 请检查")
-        return None
+        logger.warning(f"执行命令: {cmd}, 模式为 {tool} 时, 未能生成结果文件, 请检查")
+        return FuzzerResult(file_path, _main_contract, code_coverage, detect_result, _cross_contract, len(_depend_contracts), _total_op=total_op, _coverage_op=coverage_op, _transaction_count=transaction_count, _cross_transaction_count=cross_transaction_count, _tool_name=tool, _origin_info=origin_info, _flag=False)
 
 
 def run_in_docker(cmd: str, _images: str, _fuzz_index: int):
@@ -304,6 +305,8 @@ if __name__ == "__main__":
                         repeat_r.append(pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, [], MAX_TRANS_LENGTH, 2, constructor_args, i, seed, "confuzzius")))
                     elif tool_name == "sfuzz":
                         repeat_r.append(pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, [], MAX_TRANS_LENGTH, 3, constructor_args, i, seed, "sfuzz")))
+                    elif tool_name == "xfuzz":
+                        repeat_r.append(pool.apply_async(run_fuzzer, args=(path, main_contract, SOLIDITY_VERSION, "byzantium", TIME_TO_FUZZ, [], MAX_TRANS_LENGTH, 4, constructor_args, i, seed, "xfuzz")))
             mp_result.append((path, main_contract, depend_contracts, repeat_r))
             logger.info(f"已在多进程中加入任务: {len(mp_result)} 个, 总共: {MAX_FUZZ_FILE_SIZE} 个")
             if len(mp_result) >= MAX_FUZZ_FILE_SIZE:

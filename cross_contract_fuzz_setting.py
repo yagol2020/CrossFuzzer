@@ -19,19 +19,19 @@ SOLIDITY_VERSION = "v0.4.26"
 FUZZER = "fuzzer/main.py"  # docker内的main.py
 PYTHON = "python3"  # docker内的python3
 FUZZ_ABLE_CACHE_PATH = "cache/file_cache.csv"
-MAX_FUZZ_FILE_SIZE = 10  # 一轮实验里, fuzz多少个文件?
+MAX_FUZZ_FILE_SIZE = 50  # 一轮实验里, fuzz多少个文件?
 TIME_TO_FUZZ = 10 * 60  # 单位: 秒
 LARGE_SCALE_DATASETS = "/home/yy/Dataset"  # 大规模数据集的路径
 SB_CURATED_LABEL_FILE = "./cache/sb_curate.csv"  # 存在标签的数据集
-MAX_PROCESS_NUM = 15  # 最大多进程数量, 应该小于CPU核心数量
+MAX_PROCESS_NUM = 12  # 最大多进程数量, 应该小于CPU核心数量
 
 MAX_TRANS_LENGTH = 10  # fuzz过程中, 生成的最大事务序列长度
 REPEAT_NUM = 2  # 重复次数
 
-TOOLS = ["cross", "confuzzius", "sfuzz"]
+TOOLS = ["cross", "confuzzius", "sfuzz", "xfuzz"]
 
 
-# TOOLS = ["sfuzz"]
+# TOOLS = ["xfuzz"]
 
 
 ########
@@ -41,6 +41,7 @@ class Mode(Enum):
     """
     SB_CURATED = 0
     LARGE_SCALE = 1
+    TEST = 2
 
 
 MODE = Mode.LARGE_SCALE
@@ -70,7 +71,7 @@ class FuzzerResult:
     单一fuzz结果
     """
 
-    def __init__(self, _path, _contract_name, _coverage, _detect_result, _mode: int, _depend_contract_num: int, _total_op, _coverage_op, _transaction_count, _cross_transaction_count, _tool_name, _origin_info: dict):
+    def __init__(self, _path, _contract_name, _coverage, _detect_result, _mode: int, _depend_contract_num: int, _total_op, _coverage_op, _transaction_count, _cross_transaction_count, _tool_name, _origin_info: dict, _flag: bool):
         self.tool_name = _tool_name
         self.path = _path
         self.contract_name = _contract_name
@@ -83,6 +84,7 @@ class FuzzerResult:
         self.transaction_count = _transaction_count  # 交易数量
         self.cross_transaction_count = _cross_transaction_count  # 跨合约交易数量
         self.origin_info = _origin_info  # 原始信息
+        self.flag = _flag  # 是否成功
 
 
 class Result:
@@ -92,13 +94,12 @@ class Result:
     def append(self, _path, _fuzzer_results: List[FuzzerResult]):
         fuzz_cache_df = pd.read_csv(FUZZ_ABLE_CACHE_PATH)
         for _fuzzer_result in _fuzzer_results:
-            if _fuzzer_result is None:  # 当fuzz处理失败时, 会出现None, 这里过滤这种情况
+            if _fuzzer_result.flag is False:  # 当fuzz处理失败时, 会出现None, 这里过滤这种情况
                 # update fuzz able cache
                 fuzz_cache_df.loc[fuzz_cache_df["path"] == _path, "enable"] = False
-                fuzz_cache_df.loc[fuzz_cache_df["path"] == _path, "remark"] = "fuzz出现错误"
+                fuzz_cache_df.loc[fuzz_cache_df["path"] == _path, "remark"] = f"fuzz出现错误: {_fuzzer_result.tool_name}"
                 fuzz_cache_df.to_csv(FUZZ_ABLE_CACHE_PATH, index=False)
                 get_logger().debug("fuzz结果未生成, 已更新和保存缓存......")
-                return
             temp_list = self.res.get(_path, [])
             temp_list.append(_fuzzer_result)
             self.res[_path] = temp_list
@@ -125,7 +126,7 @@ class Result:
         cov = []
 
         class Coverage:
-            def __init__(self, _path, _mode, _coverage, _find_bug_count, _depend_contract_num, _trans_count, _cross_trans_count, _origin_info: dict):
+            def __init__(self, _path, _mode, _coverage, _find_bug_count, _depend_contract_num, _trans_count, _cross_trans_count, _origin_info: dict, _flag: bool):
                 self.path = _path
                 self.mode = _mode
                 self.coverage = _coverage
@@ -134,12 +135,13 @@ class Result:
                 self.trans_count = _trans_count
                 self.cross_trans_count = _cross_trans_count
                 self.origin_info = _origin_info
+                self.flag = _flag
                 self.record_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # 展开结果, 将结果平铺
         for p, rs in self.res.items():
             for ro in rs:
-                cov.append(Coverage(p, ro.tool_name, ro.coverage, len(ro.detect_result), ro.depend_contract_num, ro.transaction_count, ro.cross_transaction_count, ro.origin_info))
+                cov.append(Coverage(p, ro.tool_name, ro.coverage, len(ro.detect_result), ro.depend_contract_num, ro.transaction_count, ro.cross_transaction_count, ro.origin_info, ro.flag))
         result_df = pd.DataFrame([c.__dict__ for c in cov])
         result_df.sort_values(by="coverage", inplace=True)
         if csv_path is not None:
@@ -156,6 +158,22 @@ SFUZZ_MAPPING = ["GASLESS_SEND",  # 0
                  "UNDERFLOW",  # 7
                  "OVERFLOW"  # 8
                  ]
+XFUZZ_MAPPING = ["GASLESS_SEND",  # 0
+                 "EXCEPTION_DISORDER",  # 1
+                 "TIME_DEPENDENCY",  # 2
+                 "NUMBER_DEPENDENCY",  # 3
+                 "DELEGATE_CALL",  # 4
+                 "REENTRANCY",  # 5
+                 "FREEZING",  # 6
+                 "UNDERFLOW",  # 7
+                 "OVERFLOW",  # 8
+                 "EXTERNALCALL",  # 9
+                 "TRANSFERINTARGET",  # 10
+                 "TXORIGIN",  # 11
+                 "UNKNOW",  # 12
+                 "UNKNOW",  # 13
+                 "UNKNOW",  # 14
+                 ]
 CONFUZZIUS_MAPPING = {"Arbitrary Memory Access",
                       "Assertion Failure",
                       "Integer Overflow",  # 整型溢出
@@ -167,7 +185,7 @@ CONFUZZIUS_MAPPING = {"Arbitrary Memory Access",
                       "Leaking Ether",
                       "Locking Ether",
                       "Unprotected Selfdestruct"}
-BUG_TOGETHER = {"TIME_DEPENDENCY",  # sfuzz
+BUG_TOGETHER = {"TIME_DEPENDENCY",  # sfuzz, xfuzz
                 "NUMBER_DEPENDENCY",
                 "DELEGATE_CALL",
                 "REENTRANCY",

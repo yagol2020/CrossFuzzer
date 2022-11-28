@@ -76,6 +76,7 @@ class RQ1:
         plt.savefig(os.path.join(self.base_dir, "RQ1_coverage_bar.png"), dpi=500)
         plt.show()
 
+    @logger.catch()
     def locate_one_coverage(self):
         class TimeCoverage:
             def __init__(self, _time, _coverage, _tool):
@@ -178,7 +179,7 @@ class RQ1:
                 loc_level = ">=1k"
             for index, row in g_df.iterrows():
                 origin_info = eval(row["origin_info"])
-                if mode == "sfuzz":
+                if mode == "sfuzz" or mode == "xfuzz":
                     bug_nums = 0
                     for key, value in origin_info.items():
                         if key.startswith("BUG") and value != "0":
@@ -212,11 +213,6 @@ class RQ1:
         plt.show()
 
 
-class RQ2:
-    def __init__(self, _res_df: pd.DataFrame):
-        self.res_df = _res_df
-
-
 def prepossessing(_res_df: pd.DataFrame):
     """
     数据预处理
@@ -228,6 +224,14 @@ def prepossessing(_res_df: pd.DataFrame):
     # 2. 去除mode数量小于TOOLS数量的数据
     _res_df = _res_df.groupby("path").filter(lambda x: len(x["mode"].unique()) == len(TOOLS))
     logger.info("去除mode数量小于TOOLS数量的数据后: {}".format(_res_df.shape))
+    # 3. 去除flag为False的数据
+    for path, g in _res_df.copy().groupby("path"):
+        for index, row in g.iterrows():
+            if row["flag"] is False:
+                # 删除所有path为row["path"]的数据
+                _res_df = _res_df[_res_df["path"] != row["path"]]
+                break
+    logger.info("去除flag为False的数据后: {}".format(_res_df.shape))
     return _res_df
 
 
@@ -235,4 +239,3 @@ if __name__ == "__main__":
     res_df = pd.concat([pd.read_csv(path) for path in RESULT_PATHS])
     res_df = prepossessing(res_df)
     rq1 = RQ1(res_df)
-    rq2 = RQ2(res_df)
